@@ -905,21 +905,241 @@ OCR 主要用于：
 - 无人机属于可重复利用资源，默认可调度。
 - 合成玉、源石、寻访资源必须默认硬保护。
 - “快速精二/专精”通过 Floor Profile 落地，而不是模糊口号。
+- 共享配置当前放在 `akbox-core::config`，默认配置文件名为 `ArkAgent.toml`，缺失时回退默认值而不是报错。
+- 共享文件日志当前通过 `akbox-core::logging` 初始化，默认写入工作目录下的 `logs/arkagent.log`，文件级别收敛到 `INFO`。
+- desktop 当前已具备可实操的 Dashboard / Settings 壳层，设置页可查看、编辑、保存配置并写入测试日志。
+- desktop 后续默认界面语言以中文为准，字体统一收敛到项目内嵌的思源黑体 Regular，避免依赖系统字体回退。
+- 当前 desktop 已内嵌 `assets/fonts/SourceHanSansSC-Regular.otf`，GUI 启动时会主动注册并优先使用这套字体。
+- 当前仓库已提供 `scripts/build-desktop.ps1`，默认生成 `dist\方舟看号台.exe`，用于避免继续误开英文文件名的历史桌面产物。
+- 调试产物导出当前统一经 `akbox-core::debug_artifact` 处理；CLI 可用 `akbox-cli debug export-sample [config_path]`，desktop 设置页可直接导出样例 PNG 与识别 JSON。
+- SQLite 当前统一经 `akbox-data::database::AppDatabase` 管理：默认路径为工作目录下 `data\arkagent.db`，连接时启用 WAL 和 foreign keys，并自动应用根目录 `migrations/0001_initial.sql`。
+- desktop 面向用户的“截图导出”入口后续必须指向真实设备截图链路，不能继续把占位样例 PNG 包装成“真实截图”；在 M4 之前可以先保留 UI 与接口占位，但文案和行为必须准确。
+- `akbox-device` 当前已暴露 `capture_device_screenshot_png` 与 `ScreenshotCaptureRequest` 作为 M4 前置接口；现阶段该接口会明确返回“阶段 4 尚未接入 MuMu / ADB 截图链路”，desktop 已改为调用这条真实入口而不再导出占位样例图。
+- PRTS 的首个同步入口当前走 MediaWiki API `https://prts.wiki/api.php?action=query&meta=siteinfo&siprop=general&format=json`；`sync prts` 会把原始响应写入 `raw_source_cache`，并更新 `sync_source_state` 的成功/失败状态。
+- M3 后续除了 CLI 入口外，还要把 PRTS 与 Penguin 的同步结果直接暴露到 GUI 标签页；当前轮次展示内容先以“状态 + 缓存摘要 + 若干结果行”为主，先保证能看、能验证，再根据用户反馈收缩。
+- desktop 现在已有独立“同步”页，并提供 `PRTS` / `Penguin` 两个标签；同步动作通过后台线程执行，避免直接阻塞 GUI 事件循环。
+- Penguin 当前同步入口固定为 `https://penguin-stats.io/PenguinStats/api/v2/result/matrix?server=CN`；成功时会写入 `raw_source_cache(cache_key = penguin:matrix:cn)`、更新 `sync_source_state(source_id = penguin.matrix.cn)`，并刷新 `external_drop_matrix`。
 
 ## 24. 当前待办（初始）
 
-1. 初始化 Workspace
-2. 创建 desktop / cli / core / data / device / testkit 五个包
-3. 启动空 GUI
-4. 建立配置读取
-5. 建立日志
-6. 建立 SQLite migration
-7. 建立 AGENTS.md 更新习惯（从第一步开始）
+1. 初始化 Workspace（已完成）
+2. 创建 desktop / cli / core / data / device / testkit 五个包（已完成）
+3. 启动空 GUI（已完成）
+4. 提供 CLI 空命令与 `--help`（已完成）
+5. 建立配置读取（已完成）
+6. 建立日志（已完成）
+7. 在不跳阶段的前提下，把配置与日志接入 GUI，先做出可查看/编辑/保存配置的实操页面（已完成）
+8. 将现有 GUI 全面切换为中文，并为 desktop 内嵌思源黑体 Regular（已完成）
+9. 支持 debug 模式下的调试产物导出能力，作为 M1 收尾（已完成）
+10. 建立 SQLite migration（已完成）
+11. 打通外部数据同步骨架（进行中：PRTS 与 Penguin 已完成且已接入 GUI；下一步转入官方公告客户端）
+12. 建立 AGENTS.md 更新习惯（进行中，已完成多次记录）
+13. 将 desktop 的“导出调试样例”改为真实截图导出入口，为 M4 的 ADB 截图接入预留 UI 和接口，但不提前实现真实抓图（已完成）
+14. 为 PRTS 与 Penguin 增加 GUI 标签页展示当前同步内容与结果摘要（已完成）
 
 ## 25. 已完成内容（初始）
 
 - 需求已整理进 AGENTS.md 初稿
 - 总体架构、模块边界、开发路线、资源策略已冻结为首版执行规范
+- 已创建 Cargo Workspace 根清单、`rust-toolchain.toml`、`.gitignore`
+- 已创建 `apps/`、`crates/`、`assets/`、`docs/`、`migrations/` 基础目录结构
+- 已生成 `akbox-desktop`、`akbox-cli`、`akbox-core`、`akbox-data`、`akbox-device`、`akbox-testkit` 六个基础包
+- 已将 `akbox-desktop` 切换为 `eframe/egui` 空壳主窗口并完成静态验证
+- 已通过前台运行超时验证确认桌面程序能进入事件循环，满足 M0 对 GUI 空窗体的最低要求
+- 已将 `akbox-cli` 切换为项目级帮助入口，并验证 `cargo run -p akbox-cli -- --help` 输出
+- M0 / 阶段 0：工程初始化已完成，下一阶段转入配置与日志
+- 已建立共享配置模型、默认值与 TOML 读取能力，支持 ADB 可执行路径和游戏时区配置
+- 已为 CLI 增加 `debug config [path]` 调试入口，可打印解析后的配置来源、ADB 路径与游戏时区
+- 已建立共享文件日志初始化能力，CLI 与 desktop 共用 `logs/arkagent.log` 文件输出
+- 已将 desktop 从空窗体扩展为带 Dashboard / Settings 的实操壳，支持配置查看、编辑、保存、重载与测试日志写入
+- 已将 desktop 全面切换为中文界面，并内嵌思源黑体 Regular 作为默认 GUI 字体
+- 已为 `akbox-data` 增加同步失败告警写入/恢复、同步状态查询、原始缓存摘要查询，以及 `external_drop_matrix` 的基础读写接口
+- 已打通 Penguin CN 掉率矩阵同步链路，支持 `akbox-cli sync penguin [database_path]`，并把矩阵原始响应缓存到 SQLite
+- 已为 desktop 增加“同步”页和 `PRTS` / `Penguin` 标签，可查看同步状态、缓存摘要与 Penguin 掉率矩阵样例，并在后台线程中触发真实同步
+- 已在 `assets/fonts/` 中补充字体来源说明，记录 Adobe 官方仓库与 release 资产路径
+- 已提供中文桌面构建脚本，可产出 `dist\方舟看号台.exe` 作为固定双击入口，并完成启动验证
+- 已完成 M1 调试产物导出闭环：共享导出模块、CLI 调试命令、desktop 设置页导出按钮均已就位，并验证能实际写出 PNG/JSON
+- 已完成 M2 / 阶段 2：SQLite 连接、migration 系统、核心表骨架、repository 基础接口与 `audit_log` 写入能力
+- 已将 desktop 的样例截图导出按钮替换为真实截图导出入口，并通过 `akbox-device` 的设备截图接口占位为 M4 预留接入点
+- 已完成 M3 的第一个最小闭环：PRTS 客户端、原始响应缓存、同步状态写库与 CLI `sync prts` 入口
+
+## 29. 变更记录
+
+### 变更记录模板
+
+- 日期时间：2026-03-15 23:22:18 +08:00
+- 阶段：M0 / 阶段 0：工程初始化
+- 新需求：按仓库根目录 `AGENTS.md` 执行，并严格从 M0 开始，不跳步；每完成一个有意义的步骤都更新 `AGENTS.md`
+- 新重要记忆：M0 首个最小闭环已确定为“workspace 与工具链 + 基础目录结构”，后续仍按 `desktop 空窗体 -> cli 空命令` 顺序推进
+- 已完成：创建 Cargo Workspace；固定 `nightly-2025-07-12` 工具链；建立基础目录结构与六个基础包；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets`、`cargo test --workspace` 全部通过
+- 未完成：`akbox-desktop` 仍是 Cargo 默认模板，尚未切换到 `eframe/egui` 空壳窗口；`akbox-cli` 仍是 Cargo 默认模板，尚未整理成项目入口
+- 风险/阻塞：当前无阻塞；后续引入 GUI 依赖时需要首次下载 crates
+- 下一步：实现 `apps/akbox-desktop` 的 eframe/egui 空壳主窗口，并再次执行 fmt/clippy/test 后回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-15 23:24:49 +08:00
+- 阶段：M0 / 阶段 0：工程初始化
+- 新需求：无
+- 新重要记忆：M0 的 GUI 验证采用“两段式”执行：先用 `cargo clippy` 与 `cargo test` 完成构建验证，再用前台运行超时确认窗口已进入事件循环
+- 已完成：为 workspace 增加 `eframe` 共享依赖；将 `apps/akbox-desktop` 改为 `eframe/egui` 空壳窗口；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；前台运行 `cargo run -p akbox-desktop` 在超时前未退出，可推定窗口已成功启动
+- 未完成：`akbox-cli` 仍是 Cargo 默认模板，尚未提供项目级 `--help` 输出；M0 尚未整体收尾
+- 风险/阻塞：GUI 运行验证依赖超时推断而非人工截图；当前环境下未保留窗口截图证据
+- 下一步：实现 `apps/akbox-cli` 的空命令入口，保证 `cargo run -p akbox-cli -- --help` 输出项目帮助，然后再次执行 fmt/clippy/test 并更新本文件
+
+### 变更记录
+
+- 日期时间：2026-03-15 23:26:41 +08:00
+- 阶段：M0 / 阶段 0：工程初始化
+- 新需求：无
+- 新重要记忆：M0 的 CLI 先保持零外部依赖，使用手写参数分派稳定 `--help` 与预留子命令接口，避免在阶段 0 过早扩大依赖面
+- 已完成：实现 `apps/akbox-cli` 的帮助入口与预留子命令；新增 CLI 单元测试；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；执行 `cargo run -p akbox-cli -- --help` 返回预期帮助文本；M0 整体完成
+- 未完成：M1 / 阶段 1 的配置读取、ADB 路径配置、游戏时区配置、日志文件输出与 debug 导出能力尚未开始
+- 风险/阻塞：当前四个 library crate 仍保留 Cargo 默认模板测试，后续进入对应阶段前需要替换为项目真实骨架
+- 下一步：按既定顺序进入 M1 / 阶段 1，先建立共享配置模型与配置文件读取，并将 ADB 路径和游戏时区纳入配置结构
+
+### 变更记录
+
+- 日期时间：2026-03-15 23:46:34 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：无
+- 新重要记忆：共享配置当前统一放在 `akbox-core::config`；默认从工作目录下的 `ArkAgent.toml` 读取，若文件不存在则使用内置默认配置；CLI 已提供 `debug config [path]` 作为配置调试入口
+- 已完成：在 `akbox-core` 中新增 `AppConfig`、`AdbConfig`、`GameConfig`、`ConfigSource` 与 TOML 读取逻辑；支持默认 `Asia/Shanghai` 游戏时区、可选 ADB 可执行文件路径、默认路径回退；在 `akbox-cli` 中接入 `debug config [path]` 命令；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；执行 `cargo run -p akbox-cli -- debug config <temp-config>` 成功读取临时配置并输出 `ADB executable: C:/MuMu/adb.exe` 与 `Game timezone: UTC`
+- 未完成：日志文件输出、debug 模式下截图与识别结果导出尚未开始；desktop 端尚未消费共享配置
+- 风险/阻塞：当前配置解析仅校验非空值，尚未对时区标识做更严格校验；默认配置搜索范围目前仅覆盖工作目录下的 `ArkAgent.toml`
+- 下一步：继续 M1 / 阶段 1，建立日志初始化能力，先实现文件日志落地与 desktop/cli 共用的启动日志入口
+
+### 变更记录
+
+- 日期时间：2026-03-15 23:59:03 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：继续推进，直到 GUI 出现可以实操的内容；仍需严格按里程碑顺序执行，不得跳到后续阶段
+- 新重要记忆：为尽快达成“GUI 可实操”，当前阶段采用“先补日志，再把配置与日志接入 desktop 设置页”的顺序推进；运行时本地产物加入 `.gitignore`
+- 已完成：扩展 `AppConfig`，新增日志与调试导出配置项，并支持 `save` / `save_to_path`；新增 `akbox-core::logging` 共享日志初始化模块；CLI 启动时按配置初始化文件日志；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；执行 `cargo run -p akbox-cli -- debug config` 成功输出配置路径、日志路径与调试导出目录；`logs/arkagent.log` 已落盘并写入 `logging initialized` 与 `cli command started`
+- 未完成：desktop 尚未消费这些能力形成可操作界面；M1 的调试产物导出能力尚未补齐
+- 风险/阻塞：日志文件里保留了早期一次 `TRACE` 级别验证遗留记录，后续新写入已收敛到 `INFO`；调试导出当前仍停留在配置层
+- 下一步：把配置与日志接入 desktop，先做出可查看、编辑、保存配置并写测试日志的设置页，达到“GUI 可实操”
+
+### 变更记录
+
+- 日期时间：2026-03-15 23:59:03 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：无
+- 新重要记忆：desktop 的第一个可实操页面固定为 Settings，不引入文件选择器等额外依赖，先用文本输入 + 保存/重载按钮完成本地配置闭环
+- 已完成：`apps/akbox-desktop` 已接入共享配置与日志；新增 Dashboard / Settings 导航；Settings 页支持查看配置来源与保存路径、编辑 ADB 路径/游戏时区/日志目录/日志文件名/调试导出目录、切换调试导出开关、保存到 `ArkAgent.toml`、从磁盘重载、写入测试日志；新增 desktop 纯逻辑单元测试；再次执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；执行 `cargo run -p akbox-desktop` 在超时前持续运行，且 `logs/arkagent.log` 记录了 `desktop app starting`
+- 未完成：M1 仍缺“debug 模式下导出截图与识别结果”的实际产物导出能力；数据库与 migration 尚未开始
+- 风险/阻塞：当前 GUI 实操能力已具备，但本轮只验证了启动与日志落盘，尚未通过自动化手段点击 UI 控件；日志路径变更保存后需重启应用才会切换到新文件
+- 下一步：继续收尾 M1，实现调试产物导出目录与基础导出接口，然后再进入 SQLite migration
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:05:10 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：GUI 全面使用中文；为项目内嵌思源黑体 Regular，避免依赖系统字体回退
+- 新重要记忆：desktop 现已在启动阶段注册内嵌 `SourceHanSansSC-Regular.otf`，并将其插入 `egui` 的 `Proportional` 与 `Monospace` 字体族首位；GUI 文案本地化在 desktop 层处理，不影响 CLI
+- 已完成：从 Adobe 官方 `source-han-sans` 2.005R release 的 `09_SourceHanSansSC.zip` 提取 `OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf`，放入 `assets/fonts/`；新增 `assets/fonts/README.md` 记录来源与许可证链接；将 desktop 可见文案、按钮、状态提示、配置来源描述切换为中文；在 `apps/akbox-desktop` 中嵌入并启用思源黑体 Regular；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；直接启动 `target\\debug\\akbox-desktop.exe` 5 秒后进程仍在运行，可推定内嵌字体已正常加载
+- 未完成：M1 仍缺“debug 模式下导出截图与识别结果”的实际产物导出能力；SQLite 与 migration 尚未开始
+- 风险/阻塞：当前内嵌的是简体中文专用 `SourceHanSansSC-Regular.otf`，文件体积约 15.8 MiB；若后续加入大量代码/等宽文本展示，可能需要补专门的 monospace 策略
+- 下一步：继续完成 M1 收尾，实现调试产物导出目录与基础导出接口，然后进入 SQLite migration
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:05:10 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：用户反馈直接打开 exe 仍能看到英文，需要继续清理 GUI 残余英文并确保实际可打开的 exe 被重新构建
+- 新重要记忆：仅通过 `clippy` / `test` 不能保证 `target\\debug\\akbox-desktop.exe` 时间戳更新；用户直接打开 exe 时需要显式执行 `cargo build -p akbox-desktop`
+- 已完成：已定位到 desktop 中仍残留窗口标题、顶部标题等少量英文/英文品牌；已确认当前 `target\\debug\\akbox-desktop.exe` 的时间戳落后于最近一次中文化改动
+- 未完成：desktop 仍需彻底去掉残余英文可见文案，并重新构建新的 exe 供直接启动验证
+- 风险/阻塞：如果用户继续打开旧的构建产物，即使源码已修改也不会看到中文界面
+- 下一步：清理 desktop 残余英文可见文案，显式执行 `cargo build -p akbox-desktop`，再验证新的 exe 启动
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:08:33 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：无
+- 新重要记忆：用户直接打开 exe 时，除了源码文案外，还必须确认 `target\\debug\\akbox-desktop.exe` 已被显式重建；当前可直接验证的中文 exe 为该路径下 2026-03-16 00:08:07 生成的二进制
+- 已完成：清理 desktop 中剩余用户可见英文，包括窗口标题 `ArkAgent 看号台`、顶部标题 `ArkAgent`、按钮 `保存到 ArkAgent.toml`、表单标签 `ADB 可执行文件`；改为中文后再次执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；显式执行 `cargo build -p akbox-desktop`，成功生成新的 `target\\debug\\akbox-desktop.exe`；直接启动重建后的 exe 5 秒后进程仍在运行
+- 未完成：M1 仍缺调试产物导出能力；SQLite 与 migration 尚未开始
+- 风险/阻塞：如果用户打开的是仓库外部复制出去的旧 exe，界面仍可能是旧版本；当前只重建了 `debug` 目标，没有额外产出 `release` 包
+- 下一步：优先让用户使用 `C:\\Users\\emmmer.SUPERXLB\\git\\ArkAgent\\target\\debug\\akbox-desktop.exe` 验证中文界面；随后继续收尾 M1 的调试产物导出能力
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:11:33 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：用户反馈“打开 exe 还是显示英文”，除了 GUI 文案中文化外，还需要给出固定的中文桌面产物路径，降低误开旧英文文件名二进制的概率
+- 新重要记忆：桌面端验证不能只停留在 `cargo run` 或 `target\\debug\\akbox-desktop.exe`；需要补一个稳定的中文产物出口，便于直接双击验收
+- 已完成：已确认当前源码中的窗口标题与 GUI 可见文案均为中文，运行中的主窗口标题为“方舟看号台”
+- 未完成：仓库内还没有固定的中文桌面产物输出路径，用户仍可能继续打开英文文件名的历史可执行文件
+- 风险/阻塞：若仅依赖默认 Cargo 产物名，Windows 侧仍会暴露 `akbox-desktop.exe` 这个英文文件名，用户容易与旧构建混淆
+- 下一步：增加桌面构建脚本，输出 `dist\\方舟看号台.exe` 作为固定中文双击入口，并完成构建验证
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:13:30 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：无
+- 新重要记忆：桌面端现在应优先通过 `dist\\方舟看号台.exe` 做人工验收；中文文件名会直接反映到 Windows 进程名，能进一步减少“exe 还是英文”的感知问题
+- 已完成：新增 `scripts\\build-desktop.ps1`，默认执行 release 构建并复制产物到 `dist\\方舟看号台.exe`；`.gitignore` 已忽略 `dist/`；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；执行脚本后成功生成中文 exe，并验证其 `ProcessName` 与 `MainWindowTitle` 均为“方舟看号台”
+- 未完成：M1 仍缺调试产物导出能力；SQLite 与 migration 尚未开始
+- 风险/阻塞：当前中文双击产物来自构建后复制，源码默认 Cargo 原生产物名仍是 `akbox-desktop.exe`；若用户继续手动打开旧路径，仍可能绕过新的中文入口
+- 下一步：让用户优先验证 `C:\\Users\\emmmer.SUPERXLB\\git\\ArkAgent\\dist\\方舟看号台.exe`；随后继续完成 M1 的调试产物导出能力
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:22:14 +08:00
+- 阶段：M1 / 阶段 1：配置与日志
+- 新需求：无
+- 新重要记忆：调试产物导出当前通过 `akbox-core::debug_artifact` 提供共享实现，导出开关关闭时会显式返回“已跳过”而不是静默失败；CLI 与 desktop 复用同一套导出逻辑
+- 已完成：新增共享调试导出模块，支持按配置导出截图 PNG 与识别结果 JSON；为 CLI 增加 `debug export-sample [config_path]`；为 desktop 设置页与仪表盘增加“导出调试样例”入口；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；执行 `cargo run -p akbox-cli -- debug export-sample <temp-config>` 实际写出 `1773591726160-screenshot-cli-debug.png` 与 `1773591726160-recognition-cli-debug.json`；M1 / 阶段 1 现已完成
+- 未完成：SQLite 与 migration 尚未开始
+- 风险/阻塞：desktop 侧本轮只完成了编译与共享逻辑接入，尚未自动化点击 GUI 按钮做端到端 UI 交互验证；当前导出的是样例截图与样例识别结果，后续接入设备与视觉层后需要替换为真实采集产物
+- 下一步：进入 M2 / 阶段 2，先建立 SQLite 连接、migration 系统与核心表骨架，再补 repository 基础接口
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:26:30 +08:00
+- 阶段：M2 / 阶段 2：SQLite 与 migration
+- 新需求：无
+- 新重要记忆：SQLite 首版 schema 统一收敛在根目录 `migrations/0001_initial.sql`；`AppDatabase::open` 会创建父目录、打开数据库、启用 WAL/foreign keys，并自动应用 migration；`AppRepository` 当前先提供 `app_meta` upsert/get 与 `audit_log` 追加写入作为 repository 基础接口
+- 已完成：为 workspace 增加 `rusqlite` 与 `rusqlite_migration`；重写 `akbox-data`，新增 `database.rs`、`repository.rs` 和导出入口；建立 `app_meta`、`sync_source_state`、`raw_source_cache`、全部外部定义表、库存/干员快照与当前态表、`scan_artifact`、`recognition_review_queue`、`resource_policy`、`floor_profile`、`planner_run`、`base_layout_config`、`alert`、`audit_log` 等核心表；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；相关测试已验证所有核心表存在、WAL 已启用、`app_meta` upsert 可用、`audit_log` 可落库；M2 / 阶段 2 现已完成
+- 未完成：M3 / 阶段 3 的 PRTS、官方公告、Penguin 同步客户端与缓存编排尚未开始
+- 风险/阻塞：当前 schema 仍是 v1 骨架，很多业务列先以 `raw_json` / `payload_json` 兜底，后续进入真实同步与扫描阶段时需要逐步细化字段；数据库路径尚未进入配置文件，当前默认采用工作目录下 `data\arkagent.db`
+- 下一步：进入 M3 / 阶段 3，先搭建外部数据同步骨架，从 PRTS 客户端与原始响应缓存开始
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:36:25 +08:00
+- 阶段：M2 / 阶段 2：SQLite 与 migration（补充 UI/接口校正）
+- 新需求：将 desktop 中误导性的“导出调试样例”改为真实截图导出入口，为后续 M4 的 ADB 截图接入做前置 UI
+- 新重要记忆：desktop 不再把样例 PNG 暴露为“截图”；面向用户的截图按钮现在统一走 `akbox-device::capture_device_screenshot_png` 这条真实设备截图入口，即使当前尚未实现，也必须返回准确状态
+- 已完成：新增 `akbox-device` 的 `ScreenshotCaptureRequest` 与 `capture_device_screenshot_png` 占位接口，并为其补充单元测试；desktop 现已依赖 `akbox-device`，将仪表盘/设置页中的“导出调试样例”改为“导出真实截图”，并在界面上明确标注截图来源是 “MuMu / ADB 设备截图（阶段 4 接入后可用）”；按钮点击后不再导出占位图，而是明确提示“阶段 4 尚未接入 MuMu / ADB 截图链路”；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；直接启动 `target\debug\akbox-desktop.exe` 3 秒后进程仍在运行
+- 未完成：真实的 MuMu 设备发现、ADB 连接与截图抓取仍未开始；当前 CLI 的 `debug export-sample` 仍保留样例文件导出能力，主要用于验证调试产物落盘链路
+- 风险/阻塞：当前按钮已是“真实截图入口”，但在 M4 之前只能返回未接入提示，不能给用户产生实际截图文件；若后续要把 CLI 也切到真实截图链路，需要等设备层准备好后再统一调整
+- 下一步：继续按里程碑进入 M3 / 阶段 3，先搭建 PRTS 同步客户端与原始响应缓存
+
+### 变更记录
+
+- 日期时间：2026-03-16 00:42:57 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：无
+- 新重要记忆：M3 的第一个落地点选定为 PRTS 的 MediaWiki API `siteinfo` 查询；当前同步入口通过 `akbox-cli sync prts [database_path]` 驱动，默认把数据库放到工作目录 `data\arkagent.db`；成功时会写入 `raw_source_cache(cache_key = prts:siteinfo:general)` 并更新 `sync_source_state(source_id = prts.siteinfo.general)`
+- 已完成：为 workspace 增加 `reqwest + rustls`；在 `akbox-data` 中新增 `prts.rs`、`sync.rs`，实现 `PrtsClient`、`sync_prts_site_info` 和 `raw_source_cache / sync_source_state` 的 repository 写入；为 `akbox-cli` 增加 `sync prts [database_path]` 与 `sync --help`；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；已用真实网络执行 `cargo run -p akbox-cli -- sync prts <temp-db>`，成功拿到 PRTS 返回并写入本地 SQLite，命令输出中的 `Revision` 为 `2026-03-15T16:42:39Z`，缓存字节数为 `1820`
+- 未完成：官方公告客户端、Penguin 客户端、同步失败告警写入、外部定义表的结构化落库尚未开始
+- 风险/阻塞：当前 PRTS 只打通了 `siteinfo` 这一条最小链路，用于验证 API 连通性与缓存机制；还没有开始同步干员、道具、配方等真正业务数据；CLI 真实同步目前依赖公网访问
+- 下一步：继续 M3，优先接官方公告客户端，并把同步失败写入 `alert`，为后续企鹅数据接入复用同一套骨架
+
+### 变更记录
+
+- 日期时间：2026-03-16 01:00:40 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：为 PRTS 增加 GUI 标签页展示同步内容；继续接入 Penguin，并增加 GUI 标签页展示其同步内容；当前轮次展示字段先不做过度收缩，后续再根据用户反馈 shrink
+- 新重要记忆：desktop 已新增“同步”页，内含 `PRTS` / `Penguin` 标签；当前通过后台线程执行同步任务，再回填本地概览，避免把网络请求直接堵在 GUI 线程上；Penguin 当前最小落地点是 CN `result matrix`，并以 `external_drop_matrix` + `raw_source_cache` + `sync_source_state` 作为 GUI 展示来源
+- 已完成：在 `akbox-data` 中新增 `penguin.rs`，打通 `https://penguin-stats.io/PenguinStats/api/v2/result/matrix?server=CN`；为同步骨架补齐同步失败写入 `alert`、成功后 `resolve_alert`、同步状态摘要查询、缓存摘要查询、`external_drop_matrix` 替换写入与样例读取；为 `akbox-cli` 增加 `sync penguin [database_path]` 与帮助文本；为 `apps/akbox-desktop` 增加“同步”页和 `PRTS` / `Penguin` 标签，展示来源状态、缓存版本/字节数/时间、最近错误，以及 Penguin 掉率矩阵样例；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；已用真实网络执行 `cargo run -p akbox-cli -- sync penguin C:\Users\emmmer.SUPERXLB\AppData\Local\Temp\arkagent-penguin-validation-20260316\penguin.db`，成功写入 `7791` 条矩阵记录，`Revision` 为 `1773115200000`，缓存字节数为 `972860`；已实际启动 `target\debug\akbox-desktop.exe` 3 秒并确认窗口标题为“方舟看号台”
+- 未完成：官方公告客户端尚未开始；PRTS 仍只同步 `siteinfo`，还没有下钻到干员、道具、配方等业务定义；GUI 同步页当前只展示基础摘要，后续还要按用户反馈收缩字段
+- 风险/阻塞：当前 PRTS 与 Penguin 同步都依赖公网；Penguin 的 `external_stage_def` / `external_item_def` 仍是最小 stub 写入，只足够支撑矩阵落库与页面展示，还不能视为完整静态资料同步；GUI 的后台同步虽已避免主线程长阻塞，但尚未做更细粒度进度回传
+- 下一步：继续 M3，优先接官方公告客户端，并把同步结果接到现有“同步”页；随后再回头扩展 PRTS 的结构化业务数据同步
 
 ## 26. 首次编码默认顺序（不要跳）
 
