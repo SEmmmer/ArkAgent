@@ -1,0 +1,9 @@
+[package]
+name = "akbox-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+akbox-core = { path = "../../crates/akbox-core" }
+akbox-data = { path = "../../crates/akbox-data" }
+tracing.workspace = true
