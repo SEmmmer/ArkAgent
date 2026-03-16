@@ -8,4 +8,5 @@ akbox-core = { path = "../../crates/akbox-core" }
 akbox-data = { path = "../../crates/akbox-data" }
 akbox-device = { path = "../../crates/akbox-device" }
 eframe.workspace = true
+time.workspace = true
 tracing.workspace = true
