@@ -27,7 +27,7 @@
   - 进程注入
   - DLL 注入
   - 内存读写
-  - 协议逆向后的私有接口
+  - 协议逆向后的私有接口（原约束；已被 2026-03-17 用户新决策部分替代：对于《明日方舟》国服，森空岛接口现视为可作为主采集方案的官方接口，不再按“私有逆向接口”处理；其余未明确确认的协议逆向接口仍禁止作为主方案）
   - 修改游戏客户端文件
 - 与 MuMu/游戏的交互主通道必须是：
   - ADB 截图
@@ -90,6 +90,7 @@
 
 ### 4.2 外部数据源分工
 
+- 森空岛：账号绑定、干员拥有状态、干员养成状态、模组/专精/基建状态、box 与基建当前态；当前已提升为“玩家拥有状态”的第一优先数据源
 - PRTS：干员、道具、养成材料、基建技能、关卡/掉落静态信息、制作配方、页面变更锚点
 - 官方公告：活动开始时间、维护、活动开放窗口
 - Penguin Stats：掉率统计、阶段性掉率矩阵
@@ -365,10 +366,11 @@ DeepSeek 配置必须可选：
 
 写入本地“拥有状态/库存状态”的优先级：
 1. 用户手工确认
-2. 高置信度本地识别
-3. 中置信度识别 + 人工确认
-4. 历史已确认状态
-5. LLM 辅助推断（不得直接落最终态）
+2. 森空岛官方接口
+3. 高置信度本地识别
+4. 中置信度识别 + 人工确认
+5. 历史已确认状态
+6. LLM 辅助推断（不得直接落最终态）
 
 写入本地“外部资料定义”的优先级：
 1. 官方公告（活动时间）
@@ -925,14 +927,21 @@ OCR 主要用于：
 - 进一步排查发现，Penguin 里还存在大量 `*_perm` 常驻化活动关卡：它们仍然是 `stageType = ACTIVITY`，也有 `openTime`，但没有 `closeTime`。这类关卡属于“当前可访问的其他关卡”，不应被当成“正在进行中的活动”排进优先组；活动优先组必须再收紧为“有明确 `closeTime` 且当前尚未结束的限时活动”。
 - 继续排查发现，Penguin 原始 `stages` 里还包含 `stageId = recruit`、`code = 公开招募`、`apCost = 99` 这类非战斗伪关卡，并把公开招募标签当成“掉落”。当前掉落预览必须显式排除这类非刷图关卡，不能仅依赖 `stageType` 或 `existence` 做判断。
 - 官方公告当前同步入口固定为 `https://ak.hypergryph.com/news`；实现上直接解析官方页面内嵌的 Next.js flight payload，不依赖额外私有接口；成功时会写入 `raw_source_cache(cache_key = official:notice:cn)`、更新 `sync_source_state(source_id = official.notice.cn)`，并 upsert 到 `external_event_notice`。
+- 关于官方公告，上一轮“`notice_type = activity` + `start_at` + 黑名单关键词”的规则过滤已被新要求替代：用户现在要求这里只收“会开放资源关卡”的活动（如故事集 / SideStory），而不是泛 `ACTIVITY` 或泛活动公告。当前仅靠官网索引页标题/摘要和规则匹配，无法稳定准确区分“会开资源关卡的活动”和“联动活动 / 限定寻访 / 特殊玩法活动”；因此现阶段 `sync official` 继续缓存官网全量原始页，并把 `external_event_notice` 也保留为官网全量公告当前态，不在规则层硬做这类语义筛选，后续留给更强分类器或 DeepSeek。
 - PRTS 的首个结构化业务数据入口当前落在 MediaWiki API `action=parse&page=道具一览&prop=revid|text&format=json`；同步入口为 `akbox-cli sync prts-items [database_path]`，成功时会写入 `raw_source_cache(cache_key = prts:item-index:cn)`、更新 `sync_source_state(source_id = prts.item-index.cn)`，并 upsert 到 `external_item_def`；Penguin 的 item stub 在主键冲突时只保留占位插入，不再覆盖 PRTS 已同步的正式道具定义。
 - PRTS 的关卡静态映射当前通过两步 MediaWiki API 组合获取：先用 `action=parse&page=关卡一览&prop=revid&format=json` 取 revision，再用 `action=ask&query=[[关卡id::+]]|?关卡id|?分类|limit=500[|offset=n]&format=json` 分页拉取结构化关卡索引；同步入口为 `akbox-cli sync prts-stages [database_path]`，成功时会写入 `raw_source_cache(cache_key = prts:stage-index:cn)`、更新 `sync_source_state(source_id = prts.stage-index.cn)`，并把 PRTS 负载挂到 `external_stage_def.raw_json.$.prts`，避免覆盖 Penguin 的 stage 根对象。
 - PRTS 配方当前通过 MediaWiki API `action=parse&page=罗德岛基建/加工站&prop=revid|text&format=json` 获取，再解析加工站配方表落到 `external_recipe`；同步入口为 `akbox-cli sync prts-recipes [database_path]`，成功时会写入 `raw_source_cache(cache_key = prts:recipe-index:cn)`、更新 `sync_source_state(source_id = prts.recipe-index.cn)`；由于实时页面里存在相同产物/等级的重复配方行，当前 `recipe_id` 采用 `workshop:{output_item_id}:lv{level}:row{n}`，并在每次同步时全量替换 `external_recipe`。
 - PRTS 配方里的道具名解析当前不能简单按“同名即报错”处理；与 Penguin 共库时会出现同名旧 id / 别名 item（如 `碳` 同时命中 `200008` 与 `3112`）。当前规则是：同名时优先选择带 PRTS 正式负载的定义；若都只来自 Penguin，再优先选择 `item_id == sortId` 的 canonical 项；只有仍然无法判定时才报真正的歧义错误。
 - PRTS 干员定义里，`分类:专属干员` 当前可作为“模式 / 活动专属、玩家常规 box 不可拥有干员”的稳定标记；`sync prts-operators` / `sync prts` 现会在写入 `external_operator_def` 前过滤这类干员，并采用替换写入而不是纯 upsert，确保旧库里残留的 `Mechanist(卫戍协议)`、`暮落(集成战略)`、预备干员等条目会在下次同步时被清掉。
+- PRTS 基建技能当前来自单干员页 `后勤技能` section；同步入口为 CLI `akbox-cli sync prts-building-skills [--full] [database_path]` 与 desktop“同步 PRTS 基建技能”，成功时会写入 `raw_source_cache(cache_key = prts:operator-building-skill:cn)`、更新 `sync_source_state(source_id = prts.operator-building-skill.cn)`，并全量替换 `external_operator_building_skill`；`room_type` 列当前存 canonical key（如 `trading_post` / `control_center`），中文房间名与描述保留在 `raw_json` 里供展示。
+- 对 `PRTS growth / PRTS building skill` 这类逐干员 section 同步，若目标是“严格不漏任何变化”，当前不能接受基于页级 `lastrevid / touched` 的 workaround 式增量发现；在拿不到可证明覆盖完整数据单元的全局稳定锚点前，这两条链路继续保持全量同步，不为了省请求量引入后续难以收敛的伪增量语义。
+- 当前用户已确认正式进入 M4；本轮目标不再停留在设备页占位，而是持续推进到“MuMu 启动后可以稳定抓到真实游戏截图”为止。M4 的最小闭环顺序固定为：ADB 可执行文件发现 -> MuMu 端口发现 -> `DeviceSession` 连接/重连 -> `exec-out screencap -p` 真截图链路 -> desktop 设备页实时预览；在真截图未打通前，不提前扩张更高层自动化动作。
+- `akbox-device` 当前已经落地真实 M4 基础链路：`DeviceSession`、ADB 可执行文件自动发现、MuMu 默认端口探测（`127.0.0.1:7555` 与 `16384 + 32 * n`）、手动串号/端口覆盖、`adb connect`、`exec-out screencap -p` 真截图、以及对 loopback 设备截图失败时的一次重连重试；desktop 也已有独立“设备”页，连接检查与截图抓取都走后台线程并显示真实 PNG 预览。
+- 当前这台机器上的 MuMu / 方舟实例实机验证已经完成：自动发现命中的实际 ADB 是 `C:\Program Files\YXArkNights-12.0\shell\adb.exe`，实际设备串号是 `127.0.0.1:7555`；`akbox-cli debug capture-device` 已连续三次成功抓到 `1920x1080` PNG，三次 SHA256 一致，采样颜色数为 `71`，可确认当前抓到的是稳定真实游戏画面而不是空帧/纯色帧。
 - desktop 里的 PRTS 同步入口后续不再长期维持“站点 / 道具 / 关卡”多个分散按钮；随着 PRTS 结构化同步项增加，应收敛成一个“同步 PRTS 全部”按钮，在后台顺序执行当前所有 PRTS 子同步并统一回填概览。
-- desktop 同步页后续必须按“玩家可读”而不是“源数据直出”展示：不再默认展示 `source_id` / `cache_key` / `content_type`；时间统一转换到用户配置的时区；Penguin 需要把 `main_01-07` 之类的 stage id 转成玩家可读名称、把 item id 转成游戏内道具名、按关卡聚合并按掉率降序展示材料，同时展示单材料期望体力；当前掉落预览还需要按关卡热度（最近一段时间的上传数量）排序，并优先展示“正在进行中的活动里且掉落蓝色材料”的关卡，其余部分再展示“当前可访问的全部关卡”；掉落展示上要区分常规掉落与特殊掉落，`EXTRA_DROP` / 额外物资默认折叠且不展示；官方公告后续只应展示真正的活动公告，创作征集、制作组通讯等内容先记录需求，后续可结合规则或 DeepSeek 辅助过滤。
+- desktop 同步页后续必须按“玩家可读”而不是“源数据直出”展示：不再默认展示 `source_id` / `cache_key` / `content_type`；时间统一转换到用户配置的时区；Penguin 需要把 `main_01-07` 之类的 stage id 转成玩家可读名称、把 item id 转成游戏内道具名、按关卡聚合并按掉率降序展示材料，同时展示单材料期望体力；当前掉落预览还需要按关卡热度（最近一段时间的上传数量）排序，并优先展示“正在进行中的活动里且掉落蓝色材料”的关卡，其余部分再展示“当前可访问的全部关卡”；掉落展示上要区分常规掉落与特殊掉落，`EXTRA_DROP` / 额外物资默认折叠且不展示；官方公告后续若要单独展示“会开放资源关卡的活动”，不能只靠索引页简单规则硬筛，至少需要更强的全文规则分类或 DeepSeek 辅助，当前阶段先保留官网全量公告。
 - desktop 的长页面需要默认具备滚动能力，不能因为内容变长导致底部信息被截断；本轮同步页收口时一并补上页面滚动容器。
+- 2026-03-17 起，项目约束已由用户明确修改：森空岛接口现视为《明日方舟》国服的官方高精度数据源，优先级高于 OCR；后续干员拥有/养成状态同步应优先考虑森空岛导入，再用 MuMu + ADB + 本地视觉识别做校验、补洞和无接口兜底，而不再坚持 OCR 为第一主入口。
 
 ## 24. 当前待办（初始）
 
@@ -946,11 +955,14 @@ OCR 主要用于：
 8. 将现有 GUI 全面切换为中文，并为 desktop 内嵌思源黑体 Regular（已完成）
 9. 支持 debug 模式下的调试产物导出能力，作为 M1 收尾（已完成）
 10. 建立 SQLite migration（已完成）
-11. 打通外部数据同步骨架（进行中：PRTS 站点 / PRTS 干员基础资料 / PRTS 道具索引 / PRTS 关卡静态映射 / PRTS 配方 / Penguin / 官方公告 已完成且已接入 GUI；干员定义现已按 `分类:专属干员` 过滤 box 不可拥有的临时干员；同步页首轮玩家可读收口、长页面滚动、Penguin 预览排序 / 掉落分组 / 当前可访问判定已完成；desktop 与 CLI 的 PRTS 入口已收敛为全量同步；下一步继续停留在 PRTS 主线，转入干员养成需求或基建技能）
-12. 建立 AGENTS.md 更新习惯（进行中，已完成多次记录）
-13. 将 desktop 的“导出调试样例”改为真实截图导出入口，为 M4 的 ADB 截图接入预留 UI 和接口，但不提前实现真实抓图（已完成）
-14. 为 PRTS 与 Penguin 增加 GUI 标签页展示当前同步内容与结果摘要（已完成）
-15. 为官方公告增加 GUI 标签页展示同步状态与公告摘要（已完成）
+11. 打通外部数据同步骨架（已完成：PRTS 站点 / PRTS 干员基础资料 / PRTS 道具索引 / PRTS 关卡静态映射 / PRTS 配方 / PRTS 养成需求 / PRTS 基建技能 / Penguin / 官方公告 已完成且已接入 GUI；干员定义现已按 `分类:专属干员` 过滤 box 不可拥有的临时干员；同步页首轮玩家可读收口、长页面滚动、Penguin 预览排序 / 掉落分组 / 当前可访问判定已完成；官方公告现阶段保留官网全量公告当前态，“只保留会开放资源关卡的活动”暂不在规则层硬筛，留待更强分类器或 DeepSeek；desktop 与 CLI 的 PRTS 入口已收敛为“常规同步 + 独立 growth / building skill”；`PRTS growth / building skill` 在缺少可证明不漏变化的全局锚点前继续保持全量，不做 workaround 式增量发现）
+12. 完成 M4 / MuMu-ADB 接入（已完成：自动发现设备、手动指定串号/端口、连接/重连、`exec-out screencap -p` 真截图、`tap/swipe/keyevent` 输入链路、desktop 设备页实时截图预览；当前设备运行态输入仍未持久化到配置文件，但不阻塞阶段完成）
+13. 建立 AGENTS.md 更新习惯（进行中，已完成多次记录）
+14. 将 desktop 的“导出调试样例”改为真实截图导出入口，为 M4 的 ADB 截图接入预留 UI 和接口，但不提前实现真实抓图（已完成）
+15. 为 PRTS 与 Penguin 增加 GUI 标签页展示当前同步内容与结果摘要（已完成）
+16. 为官方公告增加 GUI 标签页展示同步状态与公告摘要（已完成）
+17. 将森空岛 `player/info` 收敛成只读 CLI / desktop 调试入口，先稳定输出脱敏字段摘要与 JSON shape，再规划导入 `operator_snapshot / operator_state`（新增，当前优先级高于 OCR 干员扫描）
+17. 进入 M5 / 视觉基础设施（进行中：页面状态 / ROI 配置结构、PNG 局部裁剪、`scan_artifact` / `recognition_review_queue` 最小写入闭环、模板匹配骨架、OCR 封装类型、CLI `debug vision-inspect` 最小视觉调试入口均已完成；下一步优先把真实 OCR 后端或可替代识别后端接进这条调试链，再继续模板匹配/扫描入口收口）
 
 ## 25. 已完成内容（初始）
 
@@ -1469,6 +1481,17 @@ Codex 不得假设“记在上下文里就够了”。
 
 ### 变更记录
 
+- 日期时间：2026-03-16 22:09:30 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户已确认正式进入 M5；首个闭环不直接跳 OCR 或模板匹配，而是先建立可落库、可复用的 ROI 配置机制最小骨架，并把识别前产物与低置信度复核入口接到数据库
+- 新重要记忆：M5 的第一步语义已固定为“ROI 定义 + 页面级状态骨架 + 局部截图裁剪 + `scan_artifact` / `recognition_review_queue` 最小写入闭环”；在这一步之前，不把零散坐标硬编码扩散进扫描流程，也不急着引入真正 OCR 引擎
+- 已完成：已先确认当前仓库里 `scan_artifact`、`recognition_review_queue` 表已经由 migration 提供，但 repository 与 device 侧尚无对应写入和 ROI 抽象；M5 将从这两个缺口补起
+- 未完成：代码尚未开始；ROI 配置格式、页面状态机骨架、截图裁剪 API、artifact/review_queue 写库接口与验证都还没有落地
+- 风险/阻塞：如果这一步直接把 ROI 坐标、页面判断和识别策略写死在具体扫描逻辑里，后续模板匹配 / OCR / review 流程会很快失控；因此必须先把结构层搭出来，再继续识别实现
+- 下一步：先在 `akbox-device` 定义页面模板与 ROI 结构、截图裁剪结果与基础验证，再在 `akbox-data::repository` 增加 `scan_artifact` / `recognition_review_queue` 写入接口，最后补最小 CLI 或单测验证并回写本文件
+
+### 变更记录
+
 - 日期时间：2026-03-16 19:17:50 +08:00
 - 阶段：M3 / 阶段 3：外部数据同步骨架
 - 新需求：养成需求展示面板里，通用技能升级的 `1→2 ... 6→7` 不应逐行平铺；要求在展示层整合整理成 `1→7`
@@ -1510,3 +1533,509 @@ Codex 不得假设“记在上下文里就够了”。
 - 未完成：`PRTS 基建技能 -> external_operator_building_skill` 仍未开始；`官方公告` 仍未过滤创作征集、制作组通讯等非活动内容；当前 `PRTS growth` 仍缺稳定轻量增量锚点
 - 风险/阻塞：`PRTS growth` 目前仍依赖逐干员 section 页面，若后续要补增量，需要继续设计“单页变更发现”能力；`Penguin` 的全量后第一次增量会先补写 `Last-Modified` 锚点，因此通常要到第二次增量才会稳定命中跳过，这是当前实现的已知行为
 - 下一步：继续停留在 M3，回到既定顺序进入 `PRTS 基建技能 -> external_operator_building_skill`；若后续继续打磨同步体验，优先处理 `PRTS growth` 的安全增量发现机制，再考虑官方公告是否出现可用的版本锚点
+
+### 变更记录
+
+- 日期时间：2026-03-16 20:45:04 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：按既定里程碑继续完成 `PRTS 基建技能 -> external_operator_building_skill`，并保持“常规 PRTS 同步”和 section 型重同步入口分离，不把高耗时、缺少稳定增量锚点的单干员 section 再塞回 `sync prts`
+- 新重要记忆：PRTS 的基建技能数据源当前稳定落在单干员页 `后勤技能` section；由于它和 `PRTS growth` 一样来自逐干员 section 拉取，当前增量请求会明确回退为全量；写库时 `external_operator_building_skill.room_type` 当前保存 canonical key（如 `trading_post` / `control_center` / `dormitory`），中文房间名、解锁条件、描述、图标信息保留在 `raw_json` 中供 GUI 直接展示
+- 已完成：在 `crates/akbox-data::prts` 中新增 `fetch_operator_building_skills`、`PrtsOperatorBuildingSkillResponse`、`PrtsOperatorBuildingSkillDefinition` 与 `后勤技能` section 解析，支持从多张表中提取解锁条件 / 房间 / 技能名 / 描述 / 图标；在 repository 中新增 `external_operator_building_skill` 的 replace / count / list 与玩家可读解析记录，并沿用干员替换时清理 stale building skill 的策略；在 sync 层新增 `PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID = prts.operator-building-skill.cn`、`PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY = prts:operator-building-skill:cn`、独立 outcome / error / sync 函数，写入 `raw_source_cache`、`sync_source_state` 与 `external_operator_building_skill`；CLI 新增 `sync prts-building-skills [--full] [database_path]`；desktop 同步页新增“同步 PRTS 基建技能”按钮、后台任务分支、状态提示与 PRTS 概览里的基建技能预览；补充 client / repository / sync / CLI 测试，覆盖 section 解析、写库、失败告警与参数校验；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；已用真实网络执行 `cargo run -q -p akbox-cli -- sync prts-building-skills <temp_db>`，确认当前实时 revision 为 `385847`，写入 `873` 条基建技能记录
+- 未完成：官方公告仍未过滤创作征集、制作组通讯等非活动内容；`PRTS growth` 与 `PRTS building skill` 仍缺稳定轻量增量锚点；desktop 仍未给 PRTS 全量同步提供更细粒度的子步骤进度回传
+- 风险/阻塞：当前基建技能解析依赖 PRTS `后勤技能` section 的表头仍保持“条件 / 图标 / 技能N / 房间 / 描述”结构；若后续模板改版，需要同步更新解析器；此外当前 `skill_id` 仍带顺序型 `rowN` 后缀，只适合“每次全量替换”语义，若未来改成真正增量 upsert，需要再设计更稳定的行级主键
+- 下一步：继续停留在 M3，优先处理官方公告“仅展示真正活动公告”的过滤闭环；若继续打磨同步层，再评估 `PRTS growth / building skill` 的安全增量发现机制，而不是直接跳到 M4
+
+### 变更记录
+
+- 日期时间：2026-03-16 21:26:29 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：继续按既定里程碑收口官方公告同步，只把“真正可用于活动窗口与提醒”的活动公告写入 `external_event_notice`，不再把创作征集、制作组通讯、维护/更新公告这类噪音继续暴露给规划与提醒层
+- 新重要记忆：实时官方官网的 `ACTIVITY` 分栏并不等于“纯活动公告”集合，当前已经确认会混入 `更新公告` 与 `创作征集活动`；因此本地过滤规则固定为“`notice_type = activity` + 能解析 `start_at` + 关键词黑名单”，并且 `external_event_notice` 在每次官方同步时采用全量替换，避免旧库残留的非活动公告继续污染当前态
+- 已完成：在 repository 中新增 `replace_external_event_notices`，把官方公告写库从增量 upsert 改为全量替换；在 `sync_official_notices_with_mode` 中加入活动公告过滤逻辑，仅保留满足规则的 `activity` 公告写入 `external_event_notice`，同时继续缓存官网原始全量页面到 `raw_source_cache`；desktop 同步页与官方公告概览文案已改成“活动公告”口径，明确说明原始缓存保留全量、当前表只留真实活动；CLI `sync official` 输出已改为 `Activity notice count`；同步层测试已覆盖“旧非活动公告会被清掉、更新公告/创作征集/制作组通讯不会写入活动表”；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；已用真实网络执行 `cargo run -q -p akbox-cli -- sync official <temp_db>`，当前 revision 为 `2026-03-11T11:00:00+08:00`，实际写入 `10` 条活动公告
+- 未完成：官方公告过滤当前仍是规则型启发式，不是更细粒度的结构化分类器；`PRTS growth` 与 `PRTS building skill` 仍缺稳定轻量增量锚点；desktop 仍未给 PRTS 全量同步提供更细粒度的子步骤进度回传
+- 风险/阻塞：当前活动过滤依赖标题/摘要关键词和 `start_at` 解析结果；若官网文案风格变化、或后续出现“真实活动但标题命中黑名单”的边界样本，需要继续调整规则；另外 `external_event_notice` 现按当前态全量替换，更适合提醒/规划读取，不等价于完整公告历史档案
+- 下一步：继续停留在 M3，回到 PRTS 主线，优先评估 `PRTS growth / building skill` 的安全增量发现机制，先做 section 型同步的轻量变更发现，再决定是否继续扩展同步体验
+
+### 变更记录
+
+- 日期时间：2026-03-16 21:34:10 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：官方公告页里若要单独保留“活动公告”，语义必须进一步收紧为“会开放资源关卡的活动”，例如故事集 / SideStory；联动活动但不开关卡、限定寻访、制作组通讯、维护/更新公告等都不应混进这个集合。若在未接入大模型前无法稳定准确判断，则这里暂时不做语义硬筛
+- 新重要记忆：当前仅靠官网索引页的 `title / brief / notice_type / start_at` 无法稳定准确判定“是否属于会开放资源关卡的活动”。即使继续补全文规则，也至少需要抓取公告详情页正文，再结合“关卡开放时间 / 关卡编号 / 解锁条件 / 活动道具”等信号与跨源校验；在现阶段没有这套更强分类链路前，`external_event_notice` 应保留官网全量公告当前态，不把不可靠的规则筛选伪装成准确语义
+- 已完成：已把上一轮“活动公告硬筛”从官方同步链路中回退：`sync_official_notices_with_mode` 现恢复写入官网全量公告到 `external_event_notice`，不再按 `activity + start_at + 黑名单关键词` 过滤；desktop 与 CLI 文案已从“活动公告记录”改回“官方公告记录”，并明确说明“会开放资源关卡的活动”语义暂不在规则层硬筛；同步层测试已同步回退为验证“旧公告会被替换掉，但官网全量公告会完整写入”；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；已用真实网络执行 `cargo run -q -p akbox-cli -- sync official <temp_db>`，当前 revision 为 `2026-03-14T11:30:00+08:00`，实际写入 `24` 条官方公告
+- 未完成：官方公告详情页正文尚未接入；“会开放资源关卡的活动”仍没有稳定的本地全文规则分类器；`PRTS growth` 与 `PRTS building skill` 仍缺稳定轻量增量锚点；desktop 仍未给 PRTS 全量同步提供更细粒度的子步骤进度回传
+- 风险/阻塞：如果后续要在不依赖 DeepSeek 的前提下做这类分类，必须把官方同步从“列表页索引”扩展到“列表页 + 公告详情页正文 + 明确规则集”，工作量和误判面都明显高于当前版本；在这之前，任何基于索引标题/摘要的硬筛都只能是近似，不适合承诺“这里只会有资源关卡活动”
+- 下一步：继续停留在 M3，先回到 PRTS 主线，优先评估 `PRTS growth / building skill` 的安全增量发现机制；官方公告这条线先维持全量同步，待后续再决定是否接入正文级规则分类或直接交给 DeepSeek
+
+### 变更记录
+
+- 日期时间：2026-03-16 21:39:20 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：`PRTS growth / PRTS building skill` 的同步若目标是“严格不漏任何变化”，则不能接受页级 `lastrevid / touched` 之类的 workaround 式增量发现；宁可继续全量，也不要先引入会让后续实现和语义收敛变困难的伪增量
+- 新重要记忆：当前 live PRTS 的 MediaWiki API 虽然能拿到单页 `lastrevid / touched`，但这只能证明“有可用的页级变更信号”，不能证明“足以覆盖 section 最终渲染的全部变化来源”；因此在本项目里，这类逐干员 section 数据源仍然不应被视为具备严格安全的增量锚点
+- 已完成：已确认并冻结这一实现边界：不再继续推进 `PRTS growth / building skill` 的页级增量发现方案，相关后续计划从“评估安全增量发现”改为“维持全量同步，等待真正可证明不漏变化的全局锚点或更高可信的数据源”
+- 未完成：`PRTS growth / building skill` 仍然只有全量同步，没有严格安全的增量能力；官方公告“资源关卡活动”语义分类也仍未接入正文级规则或 DeepSeek
+- 风险/阻塞：如果未来仍坚持“严格不漏变化”，那么 section 型同步的请求量和耗时会继续偏高；除非后续找到真正的全局稳定锚点，否则这部分没有低成本又严格正确的增量路线
+- 下一步：继续停留在 M3，但不再为 `PRTS growth / building skill` 设计 workaround 增量；优先回到其他未完成同步骨架收口项，或等待更高可信的数据源/锚点出现后再重开这条线
+
+### 变更记录
+
+- 日期时间：2026-03-16 21:53:50 +08:00
+- 阶段：M4 / 阶段 4：MuMu / ADB 接入
+- 新需求：正式进入 M4，并持续推进到“MuMu 启动后可以稳定抓到真实游戏截图”为止；在真截图稳定前，不继续扩张更高层自动化动作
+- 新重要记忆：M4 的最小闭环现已固定为“ADB 可执行文件发现 -> MuMu 端口发现 -> `DeviceSession` 连接/重连 -> `exec-out screencap -p` 真截图 -> desktop 设备页实时预览”；当前实现里若截图对象是 loopback MuMu 端点，首次 `screencap` 失败或返回非 PNG 时会先做一次 `adb disconnect/connect` 后重试
+- 已完成：在 `akbox-device` 中把原占位 `BackendNotReady` 替换为真实设备链路，新增 `DeviceConnectRequest` / `DeviceSession` / `DeviceConnectionInfo` / `ScreenshotCaptureResult`，支持显式 `adb.executable`、PATH 查找、常见 MuMu 安装目录查找、MuMu 默认端口探测、手动串号/端口覆盖、`adb devices` 解析、`adb connect`、`exec-out screencap -p` 抓取和 PNG 校验；新增单测覆盖端口候选生成、`adb devices` 解析、已连接设备直连、自动 connect 候选端口、以及 loopback 截图失败后的重连重试；desktop 已新增独立“设备”页，支持手动串号/端口输入、自动实例探测数输入、后台“刷新设备连接”与“抓取截图预览”任务、真实 PNG 解码与预览；设置页里的“导出真实截图”现也复用同一条真实设备抓图链路；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过
+- 未完成：尚未做实机 MuMu 截图验证；`tap / swipe / keyevent` 仍未接；设备页当前的“手动串号 / 端口”和“自动探测实例数”还是运行态输入，还没持久化进配置文件
+- 风险/阻塞：当前 ADB 自动发现虽然已经补了 PATH 与常见 MuMu 安装目录查找，但真实用户机器上的安装目录命名可能继续分叉；若当前自动发现仍 miss，需要先用设置页显式填写 `adb.executable`；另外，真机稳定性还必须经过实际 MuMu 运行态验证，单元测试只能证明链路逻辑正确
+- 下一步：在用户已启动 MuMu 的前提下，立即做实机连接与截图验证；若命中自动发现或连接问题，先用同机实际安装路径和端口修正，再一直迭代到能稳定抓到游戏画面为止
+
+### 变更记录
+
+- 日期时间：2026-03-16 21:56:27 +08:00
+- 阶段：M4 / 阶段 4：MuMu / ADB 接入
+- 新需求：在 M4 中不仅要把代码链路接上，还要在当前同机 MuMu 实例上完成真实截图验证，一直做到能稳定抓到游戏画面为止
+- 新重要记忆：当前机器上的 MuMu / 方舟实例实际通过 `127.0.0.1:7555` 暴露 ADB；自动发现命中的实际 `adb.exe` 路径是 `C:\Program Files\YXArkNights-12.0\shell\adb.exe`。后续如果用户机器上再次出现“留空 adb 路径仍能工作”的情况，优先检查这一路径是否仍然可用；若换机或重装后自动发现失效，再回退到设置页显式填写
+- 已完成：已新增 CLI 调试入口 `akbox-cli debug capture-device [--config path] [--serial serial_or_port] [output_path]`，复用同一条 `akbox-device` 真实链路做无 GUI 抓图验证；已在当前机器上用 `cargo run -q -p akbox-cli -- debug capture-device` 成功自动发现 `127.0.0.1:7555` 并抓到真实截图，输出文件为 `debug-artifacts/cli-device-capture.png`，PNG 大小 `2000761` 字节；随后又用 `--serial 7555` 连续抓取 `cli-device-capture-2.png` 与 `cli-device-capture-3.png`，三次都成功，尺寸均为 `1920x1080`，SHA256 一致；另做了采样颜色检查，`sampled_unique_colors = 71`，可确认不是纯黑/纯色空帧；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过
+- 未完成：`tap / swipe / keyevent` 仍未接；desktop 设备页虽然已接到同一条真实抓图链路，但本轮主要通过 CLI 做了实机验证，还未额外做 GUI 人工点击验收；设备相关运行态输入还没持久化进配置文件
+- 风险/阻塞：当前自动发现依赖 `adb.exe` 可在 PATH 或常见 MuMu 安装目录中被发现；如果后续 MuMu 安装目录命名再次变化，可能需要补新的目录规则或回退到手动填写 `adb.executable`；另外，虽然连续抓图已经稳定，但后续若接 `tap/swipe/keyevent`，还要继续验证连接保持与截图刷新之间不会互相干扰
+- 下一步：继续停留在 M4，在真截图链路稳定的前提下进入输入动作最小闭环，优先实现 `tap / swipe / keyevent` 与 desktop 设备页的连接状态刷新；若用户先要更顺手的使用路径，也可以先把当前运行态串号/端口输入收进配置文件
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:07:12 +08:00
+- 阶段：M4 / 阶段 4：MuMu / ADB 接入
+- 新需求：用户已确认真实截图没有问题，继续按既定里程碑把 M4 从“真截图稳定”推进到“真实输入动作链路可用”，优先补齐 `tap / swipe / keyevent`，并在不干扰当前游戏画面的前提下完成至少一条低风险实机验证
+- 新重要记忆：当前 `akbox-device` 已在同一条真实设备链路上支持 `tap / swipe / keyevent`；desktop 设备页现已提供运行态输入控件，CLI 也新增 `akbox-cli debug keyevent [--config path] [--serial serial_or_port] key_code` 入口。实机低风险验证当前采用 `keyevent 0`，以确认输入通道可达且不会强制跳出当前游戏页面
+- 已完成：在 `crates/akbox-device` 中新增 `DeviceInputAction` / `DeviceInputRequest` / `DeviceInputResult` / `DeviceInputError` 与 `send_device_input`，通过 `adb shell input tap|swipe|keyevent` 复用现有 `DeviceSession`、设备发现和 loopback 失败后重连重试能力；desktop 设备页已新增点按 / 滑动 / 按键三类运行态输入控件、后台任务分支与结果提示；CLI 已新增 `debug keyevent` 调试入口与参数校验测试；补充单测覆盖已连接设备按键、loopback 点按失败后重连重试、非 loopback 滑动失败直返错误；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；已在当前机器上执行 `cargo run -q -p akbox-cli -- debug keyevent --serial 7555 0`，成功通过 `C:\Program Files\YXArkNights-12.0\shell\adb.exe` 向 `127.0.0.1:7555` 发送输入；随后执行 `cargo run -q -p akbox-cli -- debug capture-device --serial 7555 debug-artifacts/cli-device-after-keyevent.png`，成功再次抓取 `1920x1080` PNG，文件大小 `1463491` 字节，SHA256 为 `A1665E5EE3AB225B35A967148AA4C67DE8A9EE7A7F8680612A483ACABAC067F0`
+- 未完成：尚未对真实游戏画面直接执行 `tap` / `swipe` 实机操作，以避免在用户当前账号界面上产生副作用；desktop 设备页的串号/端口/动作输入仍是运行态表单，尚未持久化进配置文件；M5 的 ROI / 页面状态机 / OCR 仍未开始
+- 风险/阻塞：`tap` / `swipe` 的真实验证天然带有副作用，后续若要继续做实机验收，必须先约束测试坐标或由用户确认可操作页面；另外，当前 ADB 自动发现仍依赖 PATH 或常见 MuMu 安装目录命中 `adb.exe`，若用户换机或重装 MuMu，可能仍需回退到手动填写 `adb.executable`
+- 下一步：正式结束 M4，进入 M5 / 视觉基础设施；先建立 ROI 配置机制、页面状态机骨架和 `scan_artifact` / `recognition_review_queue` 的最小写入闭环，再继续往模板匹配与 OCR 封装推进
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:44:30 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户明确要求把当前 CLI 的 M5 视觉调试能力链接进 GUI；要求在 desktop 中提供一个最小可用的视觉调试入口，能够加载页面配置、输入页面 id 和本地 PNG、运行页面确认/ROI 裁剪，并展示结果摘要
+- 新重要记忆：这一步应复用现有 `akbox-device` 视觉骨架和 `vision-inspect` 语义，而不是在 desktop 里另起一套不兼容的逻辑；GUI 先做“本地文件输入 + 后台任务 + 结果摘要”，不在这一轮扩成完整扫描工作台
+- 已完成：已先确认 `apps/akbox-desktop/src/main.rs` 里当前只有设置 / 设备 / 同步三块状态，没有视觉调试入口；准备以新增独立页面状态的方式接入，避免继续把 M5 调试能力塞进设备页
+- 未完成：代码尚未开始；视觉调试页、后台任务、结果展示和与 `vision-inspect` 对应的 GUI 输入字段都还没有落地
+- 风险/阻塞：如果把视觉调试硬塞进设备页，会继续混淆 M4 的设备调试和 M5 的视觉调试；更稳的是新增独立页面或至少独立段落，保持后续扫描页扩展空间
+- 下一步：检查 desktop 导航和后台任务模型，新增最小“视觉调试”页并复用 `akbox-device` 视觉链路；完成后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:40:40 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：在模板匹配骨架和 `vision-inspect` 调试入口代码完成后，再补一条脱离单元测试的命令级验收，确认 CLI 在临时页面配置 / 模板 / 样例 PNG 上能独立跑通
+- 新重要记忆：`akbox-cli debug vision-inspect` 当前不仅有单测，还已经做过一次真实 CLI 命令验收；后续若用户反馈视觉配置问题，可以先要求提供页面配置 JSON、模板 PNG 和截图，再直接复用这条命令定位，而不必先接入正式扫描流程
+- 已完成：已在当前机器上用临时生成的 `assets/templates/pages/inventory_main.json`、`markers/inventory_main/title_marker.png` 与本地样例截图执行 `cargo run -q -p akbox-cli -- debug vision-inspect <page_config> inventory_main <input_png> <output_dir>`，命令返回成功；实际输出显示 `Page matched: yes`、`Marker match count: 1/1`、`ROI output count: 1`，并成功写出 `manifest.json`
+- 未完成：这次命令级验收仍基于合成样例，不是实际《明日方舟》页面截图；真实 OCR 后端也还没接入，因此 manifest 里的 OCR 部分仍会是结构化错误/跳过信息
+- 风险/阻塞：如果后续真实游戏页面模板出现缩放、抗锯齿或 UI 微变体，仅靠当前灰度差分骨架可能会有误判；正式接入真实页面前，仍需要逐步收集真实样本并评估阈值
+- 下一步：继续停留在 M5，优先接入真实 OCR 后端或本地替代识别后端，再用真实页面截图扩展 `vision-inspect` 和模板匹配回归样本
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:39:33 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：设备页布局修补验收通过后，继续按 M5 主线推进模板匹配骨架、OCR 封装类型和最小视觉调试入口；要求在正式扫描状态机落地前，就能对本地 PNG、页面配置和模板文件做独立验证
+- 新重要记忆：当前视觉调试链路已经固定出一个最小入口：`akbox-cli debug vision-inspect [--templates-root path] <page_config_path> <page_id> <input_png> [output_dir]`。模板根目录默认按 `assets/templates/pages/<page_id>.json` 推导到 `assets/templates`；页面确认 marker 当前优先支持 `template_fingerprint / icon_template`，匹配算法骨架为 `normalized_grayscale_mae`；OCR 当前只完成统一封装和结构化错误返回，仍未接入真实后端
+- 已完成：在 `akbox-device` 中新增 `ocr.rs`，落地 `OcrRequest` / `OcrResult` / `OcrError` / `OcrBackend` 与 `recognize_text_from_png` 统一入口；在 `vision.rs` 中为 `PageConfirmationMarker` 增加 `match_method / template_path / pass_threshold`，新增 `TemplateMatchMethod`、`MarkerMatchResult`、`PageConfirmationResult` 与 `evaluate_page_confirmation_from_png`，当前模板匹配骨架会按 ROI 区域和模板 PNG 的灰度平均绝对误差计算 0..1 相似度；在 `apps/akbox-cli` 中新增 `debug vision-inspect` 命令，支持加载页面配置、推导模板根目录、执行页面确认、裁剪全部 ROI、对 OCR 类 ROI 调用统一 OCR 封装并把结果/错误写入 `manifest.json`；同时新增 [README.md](C:/Users/emmmer.SUPERXLB/git/ArkAgent/assets/templates/README.md) 约束 `assets/templates` 下的页面配置和模板命名规则；补充测试覆盖模板匹配成功、缺失模板路径报错、CLI `vision-inspect` 参数校验、默认模板根目录推导与完整输出产物；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，本轮后 CLI 测试为 `25` 个、device 测试为 `16` 个
+- 未完成：OCR 仍然只有封装骨架和结构化“后端不可用”错误，尚未接入真实 Windows OCR 或其他本地识别后端；模板匹配当前只支持最小灰度差分算法，尚未接入更强的图标/哈希/多尺度比对；desktop 还没有直接暴露这条视觉调试入口
+- 风险/阻塞：当前 `vision-inspect` 虽然已经能做模板和 ROI 回归，但 OCR 部分会在 manifest 里稳定返回“后端不可用”；因此这一步解决的是“可验证的骨架”和“调试链路”，不是“识别已可用”；另外 `assets/templates` 目录下还没有正式游戏页面模板样本，需要后续逐页补齐
+- 下一步：继续停留在 M5，优先接入真实 OCR 后端或至少可运行的本地替代识别后端，再把 `vision-inspect` 的模板/ROI/ocr 结果接入更正式的扫描调试入口；随后再评估 desktop 是否需要直接提供这条视觉调试能力
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:32:51 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户已确认设备页布局修补完成，继续按 M5 主线推进；本轮优先实现模板匹配骨架和 OCR 封装类型，并把已有 `vision` 配置接到一个最小 CLI 视觉调试入口，避免正式扫描前仍缺少可验证通道
+- 新重要记忆：M5 这一步的“最小可验闭环”将收敛为“页面配置文件 + 模板匹配骨架 + OCR 抽象类型 + CLI 调试入口”；在没有正式扫描状态机前，也必须能对本地 PNG 和页面配置做独立验证，否则模板/ROI 配置会缺少回归通道
+- 已完成：已先把这条继续推进 M5 的需求写回 `AGENTS.md`，准备从 `akbox-device` 的 `vision` 模块和 `apps/akbox-cli` 的 `debug` 子命令切入
+- 未完成：代码尚未开始；模板匹配骨架、OCR 封装类型、CLI 视觉调试命令与模板目录规范都还未落地
+- 风险/阻塞：如果这一步只加库内抽象、不加可执行调试入口，后续页面模板文件很难被稳定验证；反过来如果先写 CLI 命令但没有统一模板/OCR 抽象，命令又会迅速固化成一次性脚本
+- 下一步：先在 `akbox-device` 增加模板匹配骨架和 OCR 封装类型，再给 `akbox-cli debug` 增加最小视觉调试入口，最后补 `assets/templates` 的文件格式/命名规则并执行 fmt / clippy / test
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:29:53 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：desktop 设备页“输入动作测试”区域里，`滑动起点` 这一行当前过长，窗口较窄时会显示不全；需要做最小 UI 收口，保证中文标签和输入框在常规窗口宽度下可读、可操作
+- 新重要记忆：这条属于现有 desktop 设备页的人机工学修补，不改变 M4 已完成的真实输入动作链路，也不改变 M5 当前 ROI / artifact 的推进顺序；处理方式应优先改布局而不是改词义或删功能
+- 已完成：已先将该 UI 缺陷需求写回 `AGENTS.md`，准备检查 `apps/akbox-desktop/src/main.rs` 中“输入动作测试”区域的布局结构，再做最小补丁
+- 未完成：代码尚未开始；是否需要把滑动区从单行改为两行/网格，还未根据当前布局实际结构确认
+- 风险/阻塞：若直接缩短标签文案而不调整布局，后续再加字段仍会继续拥挤；需要优先把输入动作测试区改成更稳的布局容器
+- 下一步：检查设备页“输入动作测试”这一段的 `egui` 布局，优先把 `滑动起点 / 滑动终点 / 时长` 收敛成不会被截断的行或网格，然后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:31:15 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：desktop 设备页“输入动作测试”区域里，`滑动起点` 这一行过长，窗口较窄时会显示不全；要求做最小 UI 收口，不改输入动作逻辑
+- 新重要记忆：设备页的输入动作测试区不应继续把点按 / 滑动 / 按键三组控件挤在同一个大 `Grid` 里；更稳的做法是按动作分组，每组用自己的小布局容器，避免后续再加字段时整行被压缩截断
+- 已完成：已将 `apps/akbox-desktop/src/main.rs` 中的“输入动作测试”从单个 6 列大网格改为三个分组：`点按测试`、`滑动测试`、`按键测试`；其中滑动输入现拆成独立 4 列小网格，`起点 X/Y`、`终点 X/Y`、`时长 ms` 分行展示，并为数值输入框补了固定宽度，避免中文标签和输入框被整行挤爆；输入动作的实际发送逻辑保持不变；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过
+- 未完成：这次只修了设备页输入测试区的布局，没有继续做 desktop 其他页面的响应式收口；M5 的模板匹配骨架、OCR 封装和视觉调试入口仍按原计划待做
+- 风险/阻塞：当前布局已显著缓解“滑动起点一行显示不全”，但如果后续设备页还继续加入更多调试控件，可能仍需要进一步拆成折叠区或更明确的表单段落
+- 下一步：回到 M5 主线，继续实现模板匹配骨架和 OCR 封装，并把已有 ROI / artifact 配置接到最小扫描调试入口
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:26:55 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：正式进入 M5，并按最小闭环优先落地“ROI 配置机制 + 页面状态骨架 + 局部截图裁剪 + `scan_artifact` / `recognition_review_queue` 最小写入闭环”；本轮不提前跳到真正 OCR 或模板匹配识别
+- 新重要记忆：当前视觉配置的基础语义已固定为 `PageStateCatalog -> PageStateDefinition -> confirmation_markers + rois + supported/recovery actions`；ROI 坐标基于参考分辨率声明，运行时按实际截图尺寸缩放裁剪；低置信度策略当前显式收敛为 `auto_accept / queue_review / reject` 三档，其中 `queue_review` 是默认值
+- 已完成：在 `akbox-device` 中新增 `vision.rs`，落地 `PageStateCatalog` / `PageStateDefinition` / `RoiDefinition` / `RoiRect` / `RoiCropResult` / `RoiArtifactPayload`、JSON 配置加载校验、页面动作目标校验，以及 `crop_all_rois_from_png` / `crop_single_roi_from_png` 两个 PNG 局部裁剪入口；在 `akbox-data::repository` 中新增 `ScanArtifactInsert` / `RecognitionReviewQueueInsert`、`insert_scan_artifact` / `enqueue_recognition_review` / `list_*` / `count_*` 接口，并补上相应 record 导出；新增测试覆盖“页面配置指向不存在目标页会报错”“ROI 会按参考分辨率缩放裁剪”“ROI 裁剪产物可写入 `scan_artifact` 且低置信度结果可入 `recognition_review_queue`”；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中本轮新增后 `akbox-device` 测试为 `13` 个、`akbox-data` 测试为 `49` 个
+- 未完成：模板匹配骨架、OCR 封装、confidence 实际计算还未开始；当前 ROI 配置虽然可从 JSON 加载，但仓库里还没有正式的游戏页面模板文件；这套视觉配置也还没有真正接入 desktop/CLI 的扫描入口
+- 风险/阻塞：当前预处理步骤（如灰度、阈值、放大）还只是配置元数据，尚未在裁剪管线中真正执行；因此这一步解决的是“结构和入库”，不是“识别准确率”；另外，若后续页面模板文件命名或目录规范不先定下来，`assets/templates` 很容易再次分散
+- 下一步：继续停留在 M5，优先实现模板匹配骨架和 OCR 封装，并把 `vision` 配置接到一个最小扫描调试入口；在真正开始扫描页面前，先约束 `assets/templates` 下的页面模板文件格式和命名规则
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:53:34 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：把当前 CLI 的 `debug vision-inspect` 视觉调试能力正式链接进 desktop GUI，提供独立页面做本地页面配置 / 模板 / PNG 调试，而不是继续混在设备页里
+- 新重要记忆：desktop 里的 M5 视觉调试现已固定为一个独立“视觉调试”页，语义与 CLI `vision-inspect` 保持一致：输入页面配置路径、`page_id`、本地 PNG、可选模板根目录和输出目录，后台执行页面确认与 ROI 裁剪，并展示 marker/ROI 摘要和源图预览；当前仍是本地文件调试入口，不直接接 live 设备截图，也不直接写仓库/干员最终态
+- 已完成：在 `apps/akbox-desktop` 中新增独立 `Page::Vision` 与 `VisionDebugPageState`，把导航、后台任务轮询、全局 notice 和结果展示接进现有 desktop 主循环；视觉调试页现支持录入页面配置路径、页面 ID、输入 PNG、模板根目录和输出目录，留空时会按 `assets/templates` 和 `debug-artifacts/vision-inspect/<page_id>` 自动推导；后台任务复用 `akbox-device` 的 `load_page_state_catalog_from_path`、`evaluate_page_confirmation_from_png`、`crop_all_rois_from_png` 与 `recognize_text_from_png`，会写出 ROI PNG 和 `manifest.json`，并在 GUI 中展示页面匹配结果、marker 明细、ROI 明细和源图预览；同时为 desktop 补充了模板根目录推导、视觉输出目录推导、请求校验三条纯逻辑测试；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-desktop` 当前测试数为 `13`
+- 未完成：GUI 视觉调试目前仍依赖用户手填本地文件路径，没有文件选择器，也没有“一键使用当前设备截图”入口；OCR 仍然只有统一封装和结构化“后端不可用”错误，没有真实后端；视觉调试结果也还没有接入 `scan_artifact` / `recognition_review_queue` 的正式工作流
+- 风险/阻塞：虽然 GUI 已能跑通页面确认和 ROI 裁剪，但 OCR 结果在当前阶段会稳定显示为“error / backend unavailable”或“skipped”，不能被误解为识别已经可用；另外，若后续直接在这个页面继续叠加正式扫描流程，容易再次把“调试入口”和“业务扫描入口”混在一起
+- 下一步：继续停留在 M5，优先接入真实 OCR 后端或可运行的本地替代识别后端；随后再评估是否把“使用当前设备截图作为视觉调试输入”接进这个页面，最后再把低置信度结果串到 `scan_artifact` / `recognition_review_queue`
+
+### 变更记录
+
+- 日期时间：2026-03-16 22:56:30 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户要求先补全 OCR，让视觉链路先具备完整可运行的识别后端，再继续把 GUI 视觉调试页收口成“非开发者也能用”的入口；这一轮先不要优先做页面配置自动发现或设备截图一键接入
+- 新重要记忆：M5 当前顺序已调整为“真实 OCR 后端优先于 GUI 易用性优化”；只有在 `recognize_text_from_png` 不再稳定返回 `backend unavailable` 之后，才继续把视觉调试页从开发入口收口成普通用户入口
+- 已完成：已先冻结新的推进顺序，并在开始编码前将该要求写回本文件
+- 未完成：尚未开始 OCR 代码实现；当前 `akbox-device::ocr` 仍然只有统一请求/结果类型与结构化占位错误，CLI/desktop 的 OCR 结果仍不可用
+- 风险/阻塞：如果这一步直接为 GUI 做大量易用性改造，而 OCR 仍不可用，用户会得到“页面更好点了，但核心识别仍是空壳”的错觉；因此必须先把 Windows 本地 OCR 后端打通，再谈收口
+- 下一步：检查 `akbox-device::ocr`、workspace 依赖和当前 Windows 目标环境，优先接入可运行的本地 OCR 后端并补测试；完成后再执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-16 23:35:16 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：按新的 M5 顺序优先补全 OCR，本轮目标是把 `akbox-device::ocr` 从结构化占位错误升级为真实可运行的 Windows 本地 OCR 后端，并确保 CLI / desktop 现有视觉调试链路能直接吃到真实识别结果
+- 新重要记忆：当前 OCR 后端已固定为 Windows 自带 `Windows.Media.Ocr`。实现路径为“PNG 解码 -> 必要时缩放到 `OcrEngine::MaxImageDimension` -> 灰度化为 `Gray8` -> `CryptographicBuffer::CreateFromByteArray` -> `SoftwareBitmap::CreateCopyFromBuffer` -> `OcrEngine::RecognizeAsync().get()`”；线程进入 OCR 前会先尝试 `RoInitialize(RO_INIT_MULTITHREADED)`，若线程已在其他 apartment 模式则接受 `RPC_E_CHANGED_MODE` 并继续；`numeric_only` 当前通过本地后处理做数字/全角数字/常见标点归一化
+- 已完成：在 workspace 中新增 Windows OCR 所需的 `windows` 依赖与特性，并通过 `target.'cfg(windows)'.dependencies` 接入 `akbox-device`；重写 `crates/akbox-device/src/ocr.rs`，为 Windows 目标接入真实 `Windows.Media.Ocr` 后端，新增语言选择回退（请求语言 -> 用户 Profile 语言 -> 系统首个可用语言）、WinRT apartment 初始化、图像缩放/灰度化、`SoftwareBitmap` 构造和结构化 Windows 错误包装；保留非 Windows 目标的结构化 `Stub` 降级；新增测试覆盖无效 PNG 报错、数字文本归一化、OCR 输入图像缩放，以及“有效 PNG 不再只会报占位错误”；同步放宽了 `apps/akbox-cli` 的 `vision-inspect` 测试断言，使其同时接受真实 OCR `ok` 和无语言环境下的结构化 `error`；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过；另外已做一次命令级 OCR 验收：使用本地生成的数字样例图通过 `cargo run -q -p akbox-cli -- debug vision-inspect ...` 实际跑通，输出 `debug-artifacts/ocr-smoke/out/manifest.json` 中的 OCR 结果为 `backend = windows_native`、`status = ok`、`text = 12345`
+- 未完成：GUI 视觉调试页仍然是开发者入口，当前还需要手填路径，没有页面配置自动发现、没有文件选择器、也没有“一键使用当前设备截图”；OCR 虽已接通，但还没有把识别语言、失败原因和用户操作建议收口成普通用户可理解的界面文案
+- 风险/阻塞：Windows OCR 的可用语言仍受系统语言包影响；当前实现虽然会自动回退到用户 Profile 或系统首个可用语言，但不同机器上的识别语言可能不完全一致；此外 `hint_text` 仍未真正喂给底层 OCR，因为 `Windows.Media.Ocr` 本身没有 prompt/hint 接口，后续如果要进一步提准，需要结合 ROI 上下文规则而不是指望底层后端
+- 下一步：继续停留在 M5，在 OCR 已可运行的前提下把 desktop“视觉调试”页收口成非开发者可用版本，优先做页面配置自动发现/中文下拉选择、隐藏模板根目录等开发字段、接入“使用当前设备截图”，并把结果文案改成玩家可读
+
+### 变更记录
+
+- 日期时间：2026-03-16 23:49:42 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：在 OCR 已补齐后，把 desktop 的“视觉调试”页继续收口成非开发者可用版本；本轮明确要求完成三件事：页面配置自动发现、隐藏模板根目录/输出目录等开发字段、接入“使用当前设备截图”这条运行路径
+- 新重要记忆：desktop 的视觉调试页现已改成“双来源 + 模板自动发现”模式：优先从 `assets/templates/pages` 自动发现页面配置并以下拉框展示，默认图像来源改为“使用当前设备截图”，本地 PNG 保留为可选离线调试模式；页面配置路径、`page_id`、模板根目录、输出目录等开发字段已下沉到“高级选项”；当前设备截图模式直接复用 `DevicePageState::build_capture_request` 和 `capture_device_screenshot`，会在输出目录内写入 `device-screenshot.png` 后继续走同一条 `vision-inspect` 识别链
+- 已完成：重构 `apps/akbox-desktop/src/main.rs` 中的视觉调试页 UI 和状态机：新增页面模板自动发现 `discover_vision_page_presets`、模板列表刷新、中文页面下拉选择、图像来源模式切换（当前设备截图 / 本地 PNG），以及面向普通用户的运行按钮文案与页面判断提示；高级字段已收敛到折叠区，不再默认暴露；当前设备截图模式已接进后台任务，请求会自动抓取 MuMu / ADB 当前画面并在输出目录落盘后继续执行页面确认 / ROI 裁剪 / OCR；结果区现增加来源说明、人话化页面判断提示和普通用户可读的故障提示；同时新增测试覆盖页面配置自动发现与现有视觉请求校验；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-desktop` 当前测试数为 `14`
+- 未完成：当前仓库里仍然没有正式的游戏页面模板文件，`assets/templates/pages` 目前为空，因此普通用户打开视觉调试页时会先看到“未发现页面模板”的提示；这意味着“普通用户流程”已就位，但真正的开箱即用仍依赖后续逐页补齐正式模板；另外当前页仍没有文件选择器，本地 PNG 路径还是文本框
+- 风险/阻塞：如果在未随程序提供正式页面模板的情况下直接交付，这一页虽然已经不再要求用户理解模板根目录等开发概念，但仍会因为“没有模板可选”而无法完成真正调试；因此后续要么尽快补一批正式页面模板，要么在产品层面明确把这页标成“高级功能，需先安装模板包”
+- 下一步：继续停留在 M5，优先开始补第一批正式页面模板样本并把“使用当前设备截图”进一步收口成真正可点击即用的扫描调试闭环；若模板暂时还不齐，则先补文件选择器/路径记忆，减少本地 PNG 模式下的手工输入成本
+
+### 变更记录
+
+- 日期时间：2026-03-16 23:55:20 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户要求开始补“第一批正式页面模板”，使当前已经可用的 OCR / 视觉调试页不再停留在空模板状态；本轮优先挑选最适合先落地、且能直接通过现有视觉调试页验证的页面模板
+- 新重要记忆：补模板这一步不应再只停留在抽象结构，必须真正往 `assets/templates/pages` 和对应 marker 资产目录放入可被 desktop/CLI 自动发现的正式页面模板文件；优先级应偏向“当前能实机抓到、后续扫描流程也会直接用到”的页面
+- 已完成：已先冻结新的 M5 子目标，并在开始编码前将该需求写回本文件
+- 未完成：模板资产尚未开始补；`assets/templates/pages` 目前仍为空，desktop 视觉调试页依然只能提示“未发现页面模板”
+- 风险/阻塞：没有真实截图样本就无法做可信的正式模板；如果硬写坐标和 marker 而不基于真实页面样本，后续模板回收成本会更高
+- 下一步：盘点仓库内现有截图 / golden / debug 资产，并结合当前可访问的 MuMu 真机画面，先确定第一批模板页面和样本来源；完成后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-16 23:59:30 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：补第一批正式页面模板，不再让 desktop 视觉调试页停留在“有入口但无模板可选”的状态；本轮先交付能被当前 goldens 和 CLI / GUI 直接消费的正式模板
+- 新重要记忆：第一批正式页面模板现已固定落在 `assets/templates/pages`，并必须同时附带对应的 `assets/templates/markers/<page_id>/` marker PNG 与 `assets/golden/vision/` 回归样本；当前首批页面选择为 `inventory_materials_cn`（仓库 / 养成材料子页）和 `operator_detail_status_cn`（干员详情 / 状态页），两者都基于真实设备截图裁切 marker，而不是手写占位图
+- 已完成：新增正式页面配置 `assets/templates/pages/inventory_materials_cn.json` 与 `assets/templates/pages/operator_detail_status_cn.json`，并补齐对应 marker 资产 `assets/templates/markers/inventory_materials_cn/{tab_all,tab_materials}.png`、`assets/templates/markers/operator_detail_status_cn/{trust_label,attack_range_label}.png`；新增真实 golden 样本 `assets/golden/vision/inventory_materials_cn.png` 与 `assets/golden/vision/operator_detail_status_cn.png`；更新 `assets/templates/README.md`，把当前内置页面模板说明补出来；在 `crates/akbox-device/src/vision.rs` 中新增两条真实模板回归测试，直接加载正式页面配置和 golden PNG，断言两个页面都能 `matched = true` 且 `matched_markers = 2/2`；另外已做 CLI 级 smoke：`cargo run -q -p akbox-cli -- debug vision-inspect assets/templates/pages/inventory_materials_cn.json inventory_materials_cn assets/golden/vision/inventory_materials_cn.png ...` 与 `cargo run -q -p akbox-cli -- debug vision-inspect assets/templates/pages/operator_detail_status_cn.json operator_detail_status_cn assets/golden/vision/operator_detail_status_cn.png ...` 均返回 `Page matched: yes`、`Marker match count: 2/2`、`ROI output count: 3`；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-device` 当前测试数为 `21`
+- 未完成：当前正式模板仍只有两页，还不足以支撑后续仓库扫描 v1 或干员扫描 v1 的完整页面状态机；`inventory_materials_cn` 目前只覆盖仓库里的“养成材料”子页，不等于整个仓库扫描流程；`operator_detail_status_cn` 目前也只覆盖详情页里的状态页，不含技能 / 模组等后续页面
+- 风险/阻塞：这批模板目前基于 1920x1080 MuMu 截图样本验证通过，但还没有覆盖更多分辨率、缩放设置或 UI 改版后的回归；另外 `trust_value_numeric` 这类 ROI 目前只是用于调试和 OCR 验证，不应误当成已经足够稳定的最终业务字段读取模板
+- 下一步：继续停留在 M5，优先补第二批真正会服务后续扫描主线的正式模板，建议先做“仓库分页 / 结束页判定相关模板”或“干员列表页模板”，让阶段 6 / 阶段 7 的页面状态机有可直接复用的模板基座
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:13:35 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户反馈 desktop 视觉调试页在已补第一批正式模板后，仍然显示“当前还没有可用页面配置，请先刷新页面模板或在高级选项中手工填写”；本轮要求修复模板自动发现，使普通启动方式下也能直接看到内置模板
+- 新重要记忆：desktop 当前“页面模板自动发现”存在启动路径耦合风险；如果只按 `current_dir()/assets/templates` 查找模板，那么从 `dist\\方舟看号台.exe`、`target\\debug` 或 IDE 默认工作目录启动时，都可能误判仓库内真实模板不存在。后续模板资产发现必须至少支持“工作目录 / 可执行文件目录 / 仓库根目录”多候选探测，不能继续绑死单一路径
+- 已完成：已先确认问题不是模板文件缺失，而是 desktop 侧模板根目录发现策略过窄；并在开始编码前将该修复需求写回本文件
+- 未完成：代码尚未开始修改；当前视觉调试页刷新模板时仍只扫描 `working_directory/assets/templates`
+- 风险/阻塞：如果仅靠用户手工填高级路径规避，这会直接破坏前一轮“非开发者可用”的目标，而且后续打包路径一变会再次复发
+- 下一步：收窄修复范围，优先把 desktop 的模板根目录发现改成多候选自动探测并补测试，覆盖仓库根目录、`dist` 可执行目录和 `target/debug` 可执行目录等常见启动路径；完成后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:16:11 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：修复 desktop 视觉调试页仍提示“当前还没有可用页面配置”的问题，要求在已有正式模板文件存在时，普通启动方式下也能自动发现它们，而不需要用户手工填写高级路径
+- 新重要记忆：desktop 视觉调试页的模板自动发现不能再绑定 `current_dir()`；当前默认策略已固定为“多候选模板根目录探测”：先从工作目录、再从当前可执行文件目录、再从编译期 `apps/akbox-desktop` 所在目录出发，逐级向上寻找存在 `assets/templates/pages` 的目录。这样从仓库根目录、`dist\\方舟看号台.exe`、`target\\debug` 或 IDE 子目录启动时，都能稳定命中同一套正式模板
+- 已完成：在 `apps/akbox-desktop/src/main.rs` 中新增 `discover_default_vision_templates_root`、`default_vision_template_search_roots`、`find_vision_templates_root_from_search_roots` 和 `push_unique_path`，并把 `VisionDebugPageState::refresh_page_catalog` 与 `resolved_templates_root` 的默认模板根目录都改为走这条多候选探测逻辑，不再写死 `working_directory/assets/templates`；补充回归测试 `find_vision_templates_root_walks_up_from_nested_start_directory`，覆盖“从嵌套子目录启动，仍能向上命中 `assets/templates`”的场景；同时修正了一个受新自动发现影响的旧测试，使 `vision_state_build_request_rejects_missing_page_id` 在默认已自动填入页面时仍显式验证缺少 `page_id` 的错误分支；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-desktop` 当前测试数为 `15`
+- 未完成：这次修的是“找不到模板目录”的根因，不是新增更多页面模板；当前正式模板数量仍只有首批两页。GUI 本轮也没有额外增加文件选择器或模板安装向导
+- 风险/阻塞：当前自动发现已覆盖常见开发/本地打包启动路径，但若后续发布版把模板资产放到完全不同的安装目录，仍需要在打包阶段明确模板资产部署位置，或补真正的安装态资源定位策略；否则普通用户环境下仍可能需要更强的“随程序打包模板”约束
+- 下一步：继续停留在 M5，回到模板主线补第二批正式页面模板，并在 desktop 里做一次实际手点验收，确认“打开视觉调试页即可看到首批模板”在当前启动方式下已成立；随后再推进仓库分页 / 结束页或干员列表页模板
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:26:08 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：继续补第二批正式页面模板，优先服务阶段 6 的“仓库扫描主线模板”；本轮重点不是再补任意页面，而是优先交付能支撑仓库翻页、重复页判定或结束页判定的模板/ROI
+- 新重要记忆：第二批模板要尽量建立在现有真实仓库截图上，避免为了补模板去盲目操控真实游戏界面；在缺少更多实机样本前，应优先落“页面确认 + 可见物品签名 ROI + 翻页前后比较所需样本 ROI”这类低副作用模板，而不是依赖当前界面状态未知的复杂导航页面
+- 已完成：已先冻结新的 M5 子目标，并在开始编码前将该需求写回本文件
+- 未完成：仓库扫描主线相关模板尚未开始补；当前正式模板仍未覆盖翻页 / 重复页 / 结束页判定所需的页面签名 ROI
+- 风险/阻塞：若当前仓库内只有一张仓库页样本，那么本轮更适合先补“可见页签名模板”而不是直接声称完成“结束页模板”；没有连续翻页样本时，不能假装已经验证了真正的末页判断
+- 下一步：盘点现有仓库页样本和 probe 产物，优先补一组能直接用于仓库翻页比较的正式 ROI / 模板，并补上 CLI 或单测级验证；完成后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:28:20 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：继续补仓库扫描主线模板；本轮按“先服务翻页比较、再谈结束页判定”的最小闭环推进，优先交付一份可直接裁出可见页签名 ROI 的正式页面模板
+- 新重要记忆：仓库扫描主线在缺少连续翻页样本时，不应伪装成已经完成“末页判定模板”；当前更稳的做法是先把“可见页签名 ROI”正式化，让后续翻页逻辑能对相邻页面做图像签名比较。`inventory_materials_scan_cn` 现已承担这个职责：它复用仓库“养成材料”页已有的顶部 marker，并新增 4 个 `generic` 签名 ROI + 1 个中部数量 OCR 样本 ROI，供后续重复页/结束页比较使用
+- 已完成：新增正式页面配置 `assets/templates/pages/inventory_materials_scan_cn.json`，把仓库“养成材料”页的翻页签名 ROI 固定下来；该配置复用 `markers/inventory_materials_cn/{tab_all,tab_materials}.png` 作为页面确认特征，并新增 `signature_count_left`、`signature_count_mid`、`signature_count_right`、`signature_count_far_right` 四个签名 ROI 以及 `signature_count_mid_numeric` 一个辅助数字 OCR ROI；更新 `assets/templates/README.md`，把这份扫描签名模板加入当前内置模板列表；在 `crates/akbox-device/src/vision.rs` 中新增回归测试 `bundled_inventory_scan_template_matches_golden_and_crops_all_signature_rois`，断言该模板能在 `assets/golden/vision/inventory_materials_cn.png` 上 `matched = true` 且成功裁出 5 个 ROI；另外已做 CLI 级 smoke：`cargo run -q -p akbox-cli -- debug vision-inspect assets/templates/pages/inventory_materials_scan_cn.json inventory_materials_scan_cn assets/golden/vision/inventory_materials_cn.png ...` 返回 `Page matched: yes`、`Marker match count: 2/2`、`ROI output count: 5`，且 `signature_count_mid_numeric` 当前实测 OCR 结果为 `6436`；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-device` 当前测试数为 `22`
+- 未完成：这一步只补了“仓库翻页比较所需的签名模板”，还没有真正实现翻页后的重复页/结束页判定逻辑；同时也还没有第二张或最后一张仓库页样本，因此还不能声称已经验证了真正的末页行为
+- 风险/阻塞：当前签名 ROI 基于单张 1920x1080 仓库样本验证通过，但还没有在连续翻页样本上做“前后页签名确实会变化、末页会稳定重复”的实证；如果后续仓库页布局或卡片间距随分辨率变化明显，还需要补更多样本回归
+- 下一步：继续停留在 M5，优先补“仓库翻页前后对比”的第二张样本或模板，然后再把这组签名 ROI 接进阶段 6 的重复页 / 结束页判定逻辑；若当前设备页面可控，再考虑实机抓一组相邻仓库页样本做真正的翻页回归
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:37:39 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：为后续森空岛接口调试在仓库根目录本地新建 `uid.txt`，并确保该文件不会进入版本控制
+- 新重要记忆：本地调试用的 UID / 凭据占位文件必须显式加入 `.gitignore`，避免后续为了接口实验把个人标识或敏感调试输入误提交到仓库
+- 已完成：已先冻结新的本地文件需求，并在开始编码前将该要求写回本文件
+- 未完成：`uid.txt` 尚未创建；`.gitignore` 当前也还没有忽略该文件
+- 风险/阻塞：如果只创建文件不加忽略规则，后续很容易在调试森空岛接口时把本地 UID 文件一并提交；反过来如果写进仓库说明文档而不实际创建，也达不到立即可用的目的
+- 下一步：在仓库根目录创建 `uid.txt` 并写入本地调试 UID，同时把它加入 `.gitignore`；随后执行 fmt / clippy / test，并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:38:00 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：为森空岛接口后续调试准备本地 UID 文件；要求在仓库根目录创建 `uid.txt`，并确保该文件不会进入版本控制
+- 新重要记忆：本地账号 UID 这类调试输入应统一放在仓库根目录显式忽略的本地文件中，避免把个人标识混进配置或源码；当前约定文件名为 `uid.txt`
+- 已完成：已在仓库根目录创建 `uid.txt` 并写入本地调试 UID；同时更新 `.gitignore`，新增 `/uid.txt` 忽略规则，确保该文件仅用于本地调试，不会被 Git 跟踪；本轮未改任何 Rust 业务逻辑；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-cli` 25 个测试、`akbox-data` 49 个测试、`akbox-desktop` 15 个测试、`akbox-device` 22 个测试均通过
+- 未完成：当前还没有基于该本地 UID 去实际请求森空岛接口；后续若要实测 `player/info`，仍需要你提供本人的有效 `cred` + `token` 或可换取它们的 access token
+- 风险/阻塞：`uid.txt` 只解决了本地调试输入存放问题，不解决鉴权问题；仅凭 UID 仍不能直接访问森空岛接口。若后续要接入真实调用，还需要谨慎处理本地凭据存放与签名请求，不应把凭据写入仓库文件
+- 下一步：若继续森空岛方向，下一步应准备一个同样本地忽略的凭据输入方案，并在只读模式下验证 `player/info` 对该本地 UID 的实际返回字段；否则就回到 M5/M6 主线，继续补仓库翻页样本与重复页判定逻辑
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:41:10 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户要求 `AGENTS.md` 不得留下隐私信息；当前约束收紧为：不得在 `AGENTS.md` 中写入具体 UID、token、cred、access token 或其他可识别个人账号的信息
+- 新重要记忆：`AGENTS.md` 只允许记录“存在本地忽略文件 / 需要本地凭据 / 需要只读验证”这类非敏感流程信息；任何具体个人标识和凭据值都必须留在被 `.gitignore` 忽略的本地文件里，不得进入文档记录
+- 已完成：已对最近两条森空岛调试记录做脱敏处理，移除了具体 UID 与带明文 UID 的接口示例，仅保留“本地调试 UID”这类非敏感表述；本轮没有改动业务代码
+- 未完成：仓库里其余文档/日志如果后续再引入本地账号调试信息，仍需要继续遵守这条约束；当前只收口了 `AGENTS.md`
+- 风险/阻塞：如果后续把森空岛真实凭据调试过程直接写进 issue、设计说明或 commit message，同样会形成隐私泄漏；约束不应只针对 `AGENTS.md`
+- 下一步：继续保持 `AGENTS.md` 脱敏；若继续森空岛方向，后续只在本地忽略文件中保存 UID/凭据，并在回复里用泛化描述说明验证步骤
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:40:23 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：继续利用本地忽略的 `uid.txt` 做森空岛接口只读实测，确认在没有本地凭据的情况下，已知 `player/info` / `player/binding` endpoint 对本地 UID 的真实返回
+- 新重要记忆：当前已实测确认：仅凭本地 UID 直接请求 `https://zonai.skland.com/api/v1/game/player/info?uid=...` 与 `https://zonai.skland.com/api/v1/game/player/binding`，服务端都会返回 `HTTP 401 Unauthorized`，响应体为 `{\"code\":10002,\"message\":\"用户未登录\"...}`。这说明当前阻塞点是鉴权，不是 endpoint 不存在，也不是 UID 格式错误
+- 已完成：已读取本地忽略的 `uid.txt` 并据此对两个已确认存在的森空岛 endpoint 做匿名/缺签名请求；两次请求都稳定返回 `401 + code 10002`；本轮未改任何业务代码，也未把具体 UID 写入本文件
+- 未完成：还没有提供带 `cred` / `token` / `sign` 的真实鉴权请求，因此仍无法读取 `player/info` 的实际 JSON 负载
+- 风险/阻塞：当前接口鉴权明显收紧，不能再假设“知道 UID 就能查”；如果后续要继续实测，必须在本地忽略文件中准备有效凭据，并谨慎控制请求日志，避免把签名头或账号标识泄漏到仓库
+- 下一步：若继续森空岛方向，下一步应准备本地忽略的凭据输入文件，并用只读脚本验证带签名的 `player/info` 是否能返回 `chars / building / status` 等字段；否则就回到 M5/M6 主线继续补仓库翻页样本和重复页判定逻辑
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:41:40 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：尝试构建一组本地鉴权文件约定，用于后续森空岛只读实测；目标是先把文件名、字段和忽略规则固定下来，而不是立刻发起真实鉴权请求
+- 新重要记忆：森空岛本地鉴权输入后续应分成“可提交示例模板”和“本地忽略实填文件”两层：前者用于约束字段与顺序，后者用于保存真实凭据；不得把真实 `cred`、`token` 或其他账号标识直接写入仓库跟踪文件
+- 已完成：已先冻结新的本地鉴权文件约定需求，并在开始编码前将该要求写回本文件
+- 未完成：当前仓库还没有正式的森空岛本地鉴权模板文件，也没有明确的字段说明文档；`.gitignore` 也尚未忽略专用鉴权文件
+- 风险/阻塞：如果后续继续沿用临时命令行参数或随手新建文件名，容易导致凭据散落在仓库各处；反过来如果直接把真实凭据写入被跟踪模板文件，又会违反隐私约束
+- 下一步：新增一个被 `.gitignore` 忽略的本地鉴权文件名约定、一个可提交的示例模板和一份简短文档，明确字段用途、优先级和隐私边界；随后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:42:22 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：构建森空岛本地鉴权文件需求组，目标是先固定本地文件结构、字段与忽略规则，为后续只读实测做准备
+- 新重要记忆：当前森空岛本地鉴权输入约定已固定为三件套：`uid.txt` 存 UID、`skland-auth.local.toml` 存真实鉴权数据、`skland-auth.local.example.toml` 提供可提交模板；其中只有示例模板允许进版本控制，真实凭据文件必须被 `.gitignore` 忽略
+- 已完成：更新 `.gitignore`，新增 `/skland-auth.local.toml` 忽略规则；新增 [skland-auth.local.example.toml](C:/Users/emmmer.SUPERXLB/git/ArkAgent/skland-auth.local.example.toml)，明确 `uid_file`、`cred`、`token`、`user_id`、`access_token` 五个字段的最小模板；新增 [skland-auth-files.md](C:/Users/emmmer.SUPERXLB/git/ArkAgent/docs/skland-auth-files.md)，说明本地文件分层、字段用途和隐私边界；本轮未改任何 Rust 业务逻辑；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-cli` 25 个测试、`akbox-data` 49 个测试、`akbox-desktop` 15 个测试、`akbox-device` 22 个测试均通过
+- 未完成：当前还没有实际创建并填写本地忽略的 `skland-auth.local.toml`，因此也还没有带签名去请求真实 `player/info`
+- 风险/阻塞：虽然文件约定已经固定，但 `cred` / `token` 的来源和有效期仍是后续最大不确定项；如果本地凭据过期，还需要额外定义刷新或重取流程
+- 下一步：若继续森空岛方向，下一步应在本地创建被忽略的 `skland-auth.local.toml` 并填入真实凭据，然后写一个只读验证脚本，优先验证带签名的 `player/info` 是否能稳定返回 `chars / status / building`
+
+### 变更记录
+
+- 日期时间：2026-03-17 00:46:20 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：在 desktop 程序里直接做完整的森空岛扫码登录路径：用户在程序登录界面点击确认登录后，程序生成并展示二维码，用户扫码确认后，程序自动创建或更新本地忽略的 `skland-auth.local.toml`，写入 `access_token / cred / token / user_id`
+- 新重要记忆：这条登录闭环当前不需要引入手机端逆向或额外鉴权算法；公开实现已确认扫码链路为 `gen_scan/login -> scan_status -> token_by_scan_code -> oauth2 grant -> generate_cred_by_code`，且 `generate_cred_by_code` 返回的 `CRED` 模型中已包含 `cred`、`token` 与可选 `userId`，因此 desktop 端当前最小闭环可以只依赖这组公开接口完成本地凭据落盘
+- 已完成：已先冻结新的 desktop 扫码登录需求，并在开始编码前将该要求写回本文件
+- 未完成：当前程序还没有森空岛登录 UI、二维码展示状态机或扫码轮询任务；`skland-auth.local.toml` 也还没有自动写入逻辑
+- 风险/阻塞：扫码登录会引入新的后台任务和网络状态机；如果把二维码生成、轮询和文件写入直接塞进现有设置逻辑而不做独立状态管理，GUI 容易再次变得难维护
+- 下一步：在 desktop 设置页新增独立“森空岛登录”分组，优先实现“生成二维码 -> 轮询扫码 -> 写入本地鉴权文件”的最小闭环，并补测试覆盖本地鉴权文件读写和默认路径推导；完成后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:02:22 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：把 desktop 的森空岛扫码登录做成可直接操作的 GUI 闭环：新增独立登录页、点击后弹出二维码、后台轮询扫码状态，并在成功后自动创建或更新本地忽略的 `skland-auth.local.toml`
+- 新重要记忆：森空岛扫码登录当前在产品里只定位为“可选的本地只读接口调试辅助”，不能替代 MuMu + ADB + 本地视觉识别主链路；实现上 desktop 已固定走 `gen_scan/login -> scan_status -> token_by_scan_code -> oauth2 grant -> generate_cred_by_code`，并把写盘范围收敛为 `uid_file / access_token / cred / token / user_id` 五个字段，且 UI 与日志都不得回显真实凭据值
+- 已完成：已在 `apps/akbox-desktop` 中新增独立 `森空岛登录` 页面和二维码弹窗；登录页支持填写本地鉴权文件路径与 `uid_file` 字段、显示本地鉴权文件状态、启动后台扫码任务、在二维码生成后弹窗展示并持续轮询 `scan_status`；扫码确认后会自动换取 `access_token / cred / token / user_id` 并写入本地忽略的 `skland-auth.local.toml`，不存在时会自动创建；同时新增本地鉴权文件默认路径、读写与缺省值测试。依赖层面为 desktop 补入了 `reqwest / serde / toml / qrcode`
+- 未完成：这一步只完成了 GUI 登录与本地凭据落盘，还没有继续接 `player/info`、`binding` 或 box 数据导入；也还没有做真实人工扫码验收，因此当前仍停留在“代码闭环已完成、等待用户实机登录确认”的状态
+- 风险/阻塞：森空岛扫码状态码目前只对 `100..=102` 这类“等待扫码/确认中”做了保守轮询兜底；若后续服务端改动状态码或返回结构，可能需要按实际响应补充更精细的错误分支。另外该本地鉴权文件后续若再扩字段，当前重写逻辑不会保留注释
+- 下一步：让用户在 desktop 中实际点击 `森空岛登录 -> 确认登录` 完成一次扫码验收；若登录成功，再继续做只读的 `player/info` 调试入口或导入链路，并继续保持“非主方案、不可替代 ADB 主链路”的约束
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:05:31 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户在 desktop 实测森空岛扫码登录时，流程卡在 `generate_cred_by_code`；当前 UI 报错为“解析响应失败：error decoding response body”，要求直接排查并修复响应解码层
+- 新重要记忆：实时探针已确认 `https://zonai.skland.com/api/v1/user/auth/generate_cred_by_code` 至少在错误态会返回 `code / message / timestamp` 这类 envelope，而不是先前假设的 `status / msg / data`；因此 desktop 的森空岛请求解码层不能再写死单一 envelope 结构，同时错误提示也不能只暴露模糊的 `error decoding response body`
+- 已完成：已先通过真实网络对 `generate_cred_by_code` 做错误态探针，确认当前服务端至少存在 `code + message` 响应形态，并在开始编码前将该修复需求写回本文件
+- 未完成：desktop 代码仍然只按 `status / msg / data` 反序列化森空岛响应；若用户再次扫码，到 `generate_cred_by_code` 仍可能继续在解码阶段失败
+- 风险/阻塞：如果只修 `generate_cred_by_code` 这一个 endpoint，而不把请求解码收口成兼容 `status/code` 双 envelope 的公共层，后面接 `player/info` 或其他 `zonai` endpoint 时还会再次踩同类问题
+- 下一步：把 desktop 森空岛请求解码层改成兼容 `status` 与 `code` 两类 envelope，并在解析失败时回传“HTTP 状态 + 非敏感响应摘要”；补单测后重新执行 fmt / clippy / test，再回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:07:16 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：修复 desktop 森空岛扫码登录在 `generate_cred_by_code` 阶段的响应解码失败，并把错误信息改成能反映真实服务端返回而不是泛化的 `error decoding response body`
+- 新重要记忆：森空岛相关接口当前不能再假设统一 envelope。`as.hypergryph.com` 这组接口仍然可能返回 `status / msg / data`，而 `zonai.skland.com` 至少已实测存在 `code / message / ...` 形态；因此 desktop 端已把森空岛 HTTP 解码层收口成兼容 `status/code` 双 envelope，并在解析或 HTTP 失败时仅回传“状态码 / message / data keys”这类非敏感摘要，避免把成功态里的 `cred`、`token` 等值暴露到 UI 或日志
+- 已完成：已在 `apps/akbox-desktop/src/main.rs` 中把 `SklandApiEnvelope` 改为同时兼容 `status` 与 `code`；`poll_skland_scan_code`、`skland_require_success_data` 与公共 `skland_post_json / skland_get_json` 都已改为走统一 `decode_skland_response`；新增 `summarize_skland_response_body`，在 HTTP 或 JSON 解码失败时输出非敏感响应摘要；补充了三条测试，覆盖 `status` 形态、`code` 形态以及“响应摘要不泄露 token/cred 值”；执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-desktop` 当前测试数为 `21`
+- 未完成：这一步修的是响应 envelope 与错误可读性，还没有对真实扫码成功链路做二次人工验收；若服务端成功态 `data` 字段结构还有进一步变化，仍需要按下一次实测结果继续细化
+- 风险/阻塞：虽然当前已兼容 `status/code` 双形态，但森空岛网关仍可能偶发返回 `HTTP 5xx + code/message` 或风控页；若后续再出现失败，新 UI 会直接显示更接近真实原因的摘要，便于继续定位
+- 下一步：请用户重启 desktop 并再次执行一次森空岛扫码登录；若仍失败，直接根据新的错误摘要继续收窄到具体 endpoint/HTTP 状态。若成功，则继续接 `player/info` 的只读调试入口
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:09:51 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户已在 desktop 中成功完成森空岛扫码登录，并要求立即只读验证“是否可以访问到干员养成情况”
+- 新重要记忆：当前本地森空岛鉴权文件虽然落在 `target\\debug` 启动目录下，但配合 `uid.txt` 与公开签名算法，已能稳定访问 `game/player/binding` 与 `game/player/info`；实测 `player/info` 返回的不只是账号概览，还包含 `chars`、`assistChars`、`status`、`building`、`equipmentInfoMap`、`charInfoMap` 等结构，其中 `chars[]` 明确带有 `charId / level / evolvePhase / mainSkillLvl / skills[].specializeLevel / equip[].level / defaultEquipId`，已足够覆盖 v1 干员养成状态的大头
+- 已完成：已用本地忽略的森空岛鉴权文件和 `uid.txt` 做只读签名请求验证，成功访问 `https://zonai.skland.com/api/v1/game/player/binding` 与 `https://zonai.skland.com/api/v1/game/player/info?uid=...`；当前绑定角色列表返回成功，`player/info` 也返回成功，并确认存在干员列表、基建信息和模组/专精相关字段。本轮未改 Rust 业务代码，也未把具体 UID、`cred`、`token` 或 `access_token` 写入本文件
+- 未完成：当前这一步只是手工只读验证，还没有把森空岛 `player/info` 接进 CLI/desktop 调试入口，也还没有把返回结构映射到本地 `operator_snapshot / operator_state` 模型
+- 风险/阻塞：森空岛接口虽然已证明能拿到干员养成主字段，但它仍属于冻结约束里“不能作为主方案的协议逆向私有接口”范畴，因此后续只能作为可选导入/对照源，不能替代 MuMu + ADB + 本地视觉识别主链路；另外当前鉴权文件默认落在启动目录，若继续沿用 `target\\debug` 启动 desktop，需要后续明确更稳定的本地凭据文件定位策略
+- 下一步：若继续森空岛方向，优先把这次已验证的 `player/info` 收敛成一个只读 CLI/desktop 调试入口，先输出脱敏字段摘要与 JSON shape，再决定是否做“可选导入到 operator snapshot”的辅助链路；主线阶段上仍继续按 M5/M6 推进视觉扫描
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:11:45 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户正式修改项目约束，明确要求将森空岛接口视为官方高精度数据源，优先级高于 OCR
+- 新重要记忆：旧的“协议逆向后的私有接口不能作为主方案”约束对森空岛已不再适用；当前项目口径已调整为：森空岛接口作为《明日方舟》国服的官方主采集源，优先负责干员拥有/养成当前态，MuMu + ADB + 本地视觉识别退为校验、补洞和无接口兜底链路
+- 已完成：已在本文件中正式回写这次约束变更：`冻结约束` 里的“协议逆向后的私有接口”已标记为“原约束，森空岛已被替代”；`外部数据源分工` 已新增森空岛并提升为玩家拥有状态第一优先数据源；`数据源优先级` 已改为“用户手工确认 > 森空岛官方接口 > 高置信度本地识别 ...”；`当前重要记忆` 与 `当前待办` 也已同步收口，把森空岛 `player/info` 的只读调试/导入入口提升为高优先级后续工作
+- 未完成：这一步只修改了项目约束与路线，没有把代码层的数据导入优先级、扫描流程或 UI 文案全部切到“森空岛优先”
+- 风险/阻塞：项目约束虽然已经变更，但代码实现仍然主要围绕 OCR / ADB 扫描构建；如果后续不尽快把森空岛只读调试入口和导入链路落地，文档与实现会继续出现优先级不一致
+- 下一步：优先实现森空岛 `player/info` 的只读 CLI / desktop 调试入口，并开始设计“森空岛导入 -> operator snapshot/current state”的主链路；OCR 干员扫描则转为校验与兜底
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:13:45 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：继续落地森空岛主链路，直接实现 `player/info` 的只读 CLI / desktop 调试入口，并开始接 `operator_snapshot / operator_state` 导入链路
+- 新重要记忆：这一步的最小闭环不该继续把森空岛逻辑散落在 desktop；既然它已经升为主数据源，`player/info` 请求、签名、脱敏摘要和导入逻辑应尽量下沉到 `akbox-data`，CLI 与 desktop 只做触发和展示，避免后面重复维护两套实现
+- 已完成：已先冻结新的实现范围，并在开始编码前将该需求写回本文件
+- 未完成：当前森空岛能力仍只存在 desktop 登录页和临时只读脚本里；仓库里还没有正式的 `player/info` 客户端、CLI 调试入口，也没有把返回结构映射到 `operator_snapshot / operator_state`
+- 风险/阻塞：如果这一步只在 CLI 或 desktop 临时拼一层展示，而不顺手把导入逻辑接进 repository，下一轮还会再做一遍数据映射；反过来如果一口气做完整 inventory/operator/base 全量导入，又会超出这轮最小闭环
+- 下一步：优先在 `akbox-data` 落森空岛 `player/info` 最小客户端与 operator 导入逻辑，再把它接到 CLI `debug` 和 desktop `森空岛登录` 页；完成后执行 fmt / clippy / test 并回写本文件
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:37:00 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：把森空岛 `player/info` 正式收口成可用的只读 CLI / desktop 调试入口，并把干员当前态导入接进 `operator_snapshot / operator_state`
+- 新重要记忆：森空岛当前实现已下沉到 `akbox-data`：`player/info` 请求、签名、原始缓存、同步状态、脱敏摘要与 operator 导入都统一经数据层处理；另外本地鉴权文件若落在 `target/debug` 或 `target/release`，`uid_file = "uid.txt"` 现在会按“先同目录，再向上逐级回溯”解析，避免因为启动目录变化导致调试入口误报找不到 UID 文件
+- 已完成：新增 `crates/akbox-data/src/skland.rs`，实现森空岛鉴权文件读取、签名 GET、`player/binding` / `player/info` 读取、`raw_source_cache(sync_source_state)` 写入、只读 inspect outcome 和导入 `operator_snapshot / operator_state` 的最小链路；`repository` 已补 `operator_snapshot / operator_state` 的 replace/count/list 接口并加单测；`akbox-cli` 已新增 `debug skland-player-info [--auth-file path] [--database path] [--import]`；desktop 的“森空岛登录”页已新增数据库路径、`检查 player/info`、`导入到干员状态` 两个后台任务按钮与结果摘要展示；新增的 Skland 与 repository 测试均通过。额外 live smoke 结果显示：当前本地真实 `cred/token` 已失效，调用 `game/player/binding` 返回 `401 Unauthorized`，因此若要继续做真实导入验收，需要先重新扫码刷新本地鉴权文件
+- 未完成：当前只接了干员当前态导入，还没有继续映射森空岛的库存、基建、理智或提醒相关字段；desktop 也还没有单独的“查看原始 JSON shape / 导出脱敏摘要”入口
+- 风险/阻塞：森空岛 `cred/token` 有有效期，live 验收会受到本地凭据是否过期影响；当前代码虽然已经把“找不到 `uid.txt`”这个路径问题修掉，但如果凭据过期，CLI / desktop 仍会直接得到 `401`，需要用户重新扫码
+- 下一步：先让用户重新扫码刷新本地鉴权文件，然后用 desktop 的 `检查 player/info` / `导入到干员状态` 做一次真实验收；若通过，再继续把同一套森空岛主链路扩到 inventory / building / alert 所需字段，并重新评估 OCR 在干员侧的收缩范围
+
+### 变更记录
+
+- 日期时间：2026-03-17 01:42:44 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户在 desktop 中点击“检查 player/info”后页面长时间停留在“正在后台执行”，要求直接确认进度并修复卡住问题
+- 新重要记忆：desktop 森空岛页当前有两类后台任务：扫码登录任务和 `player/info`/导入任务；轮询逻辑不能把两者串成“先等登录任务完成，否则直接 return”，否则只跑 `player/info` 时 GUI 会一直显示运行中但结果永远不回填
+- 已完成：已定位并修复 `apps/akbox-desktop/src/main.rs` 中 `SklandLoginPageState::poll_running_task` 的早退 bug：现在扫码任务与 profile 任务分开轮询，没有登录任务时也会继续处理 `running_profile_task`；并新增回归测试 `skland_profile_task_is_polled_without_login_task`，覆盖“只有 player/info 任务在跑时也能正常收尾”的场景。执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过
+- 未完成：这一步修的是 GUI 任务收尾，不改变森空岛 live 请求结果；若本地凭据过期，修复后 UI 会结束并显示真实错误，而不是一直卡住
+- 风险/阻塞：如果用户当前 desktop 进程仍是修复前启动的旧二进制，界面会继续表现为“卡住”；需要重启 desktop 才能拿到这次修复
+- 下一步：让用户重启 desktop 并再次执行 `检查 player/info`；若仍失败，新的界面会直接显示成功摘要或真实错误，再据此继续收窄 live 鉴权/接口问题
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:03:00 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户在重新扫码登录后，desktop 的 `player/info` 检查仍报 `game/player/binding` 401，要求继续收窄 live 鉴权链路直到真实请求可用
+- 新重要记忆：当前森空岛 live 鉴权链路还有四个关键约束不能再写错。其一，请求签名串必须使用完整 `request_url` 解析出的 `/api/v1/...` 路径，并把 query 直接拼在路径后面，中间不能额外插入 `?`；其二，`generate_cred_by_code` 返回的初始 token 不能直接长期用于后续签名请求，成功登录后要先调用 `GET /api/v1/auth/refresh` 刷新签名 token；其三，workspace 里的 `reqwest` 必须启用 `gzip`，否则 `player/info` 这类压缩响应会在解码阶段失败；其四，`player/info` 的 `chars[].equip` 实时返回既可能是数组，也可能退化成单个对象，反序列化必须兼容双形态
+- 已完成：已在 `apps/akbox-desktop/src/main.rs` 中把扫码登录成功后的 token 链路收口为“`generate_cred_by_code` -> `auth/refresh` -> 写入本地鉴权文件”；在 `crates/akbox-data/src/skland.rs` 中修正了签名串构造、请求前自动 `auth/refresh`、响应文本归一化与非敏感摘要、以及 `equip` 单对象/数组双形态兼容；workspace `reqwest` 已启用 `gzip`；新增/更新了 Skland 相关测试并全部通过。随后执行真实 smoke：`cargo run -q -p akbox-cli -- debug skland-player-info --auth-file target/debug/skland-auth.local.toml --database <temp_db> --import` 已成功返回，确认 `binding` 与 `player/info` 可访问，且 `operator_snapshot / operator_state` 导入链路已打通。最后再次执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过
+- 未完成：这一步只收口了森空岛干员当前态的 live 读写链路，还没有继续把 inventory / building / alert 所需字段映射进本地模型，也还没有给 desktop 做更细的导入结果展示
+- 风险/阻塞：若用户仍在运行修复前启动的旧 desktop 进程，GUI 仍会继续用旧的签名与旧 token 逻辑，从而继续报 401；需要重启 desktop 才会加载这次修复后的二进制
+- 下一步：让用户重启 desktop 后重新执行 `检查 player/info` 或 `导入到干员状态` 做 GUI 验收；若通过，则继续把森空岛主链路向 inventory / building 扩展，并同步收缩干员 OCR 主链路定位
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:18:00 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：用户已确认森空岛干员导入可用，要求把 `player/info` 里的 `building / status` 继续落到本地数据库，并在完成后正式转入 M6 仓库扫描主线
+- 新重要记忆：当前最小闭环不应把森空岛基建/账号状态继续只停留在 `raw_source_cache` 或 UI 摘要里；既然森空岛已升为主数据源，这两块也必须采用“当前态表 + 历史快照表”的同一数据库语义，避免后面再把基建当前态硬塞进 `base_layout_config` 这类用户配置表
+- 已完成：已在开始编码前确认这轮范围只做“森空岛 `building / status` 最小入库闭环”，不把 M6 仓库扫描一并揉进同一轮大改；同时已完成现有 schema / repository / `player/info` 结构的读取与设计收口
+- 未完成：当前仓库里还没有 `player_status_*` 或 `base_building_*` 表，也没有把 `player/info` 导入扩成“干员 + 状态 + 基建”一体更新
+- 风险/阻塞：如果这一步直接把森空岛基建状态塞进现有 `base_layout_config` 或只写 `app_meta`，后续做基建提醒和轮班时会把“用户配置”和“实时当前态”混在一起，返工会更大
+- 下一步：增加新的 SQLite 表与 repository 接口，把 `player/info` 导入扩成同时更新干员/账号状态/基建当前态，并把 CLI / desktop 摘要与导入结果同步到新的本地状态语义
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:30:00 +08:00
+- 阶段：M5 / 阶段 5：视觉基础设施
+- 新需求：完成森空岛 `player/info` 中 `building / status` 的最小结构化入库闭环，并让 CLI / desktop 都能触发、查看和验收，然后把下一步切到 M6 仓库扫描
+- 新重要记忆：森空岛 `player/info.status` 的实时字段明显比当前最小模型丰富，live 已确认至少存在 `ap / level / mainStageProgress / name / storeTs / uid` 等键；因此这轮先采用“已知摘要字段 + keys_json + raw_json”的保守结构化落库，不假设字段全集固定。基建侧则先收口为 `has_control/meeting/training/hire` 与 `dormitory/manufacture/trading/power/tiredChars` 这些稳定摘要，同时保留 `building_keys_json + raw_json` 供后续扩展
+- 已完成：新增 `migrations/0002_skland_status_building.sql`，建立 `player_status_snapshot`、`player_status_state`、`base_building_snapshot`、`base_building_state` 四张表，并在 `AppDatabase` 中接入新 migration；`repository` 新增对应的 replace/count/list 接口和单测；`crates/akbox-data/src/skland.rs` 现已支持提取 `status_keys/storeTs` 与基建摘要，并新增 `import_skland_player_info_into_status_and_building_state`；现有 inspect outcome 也已补齐状态字段和基建摘要。CLI 新增 `akbox-cli debug skland-player-info --import-status-building`；desktop 森空岛页新增“导入账号/基建状态”按钮和结果展示。执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-data` 当前测试数为 `58`。额外 live smoke 也已通过：新的 `--import-status-building` 入口能成功访问真实 `player/info`，并把账号状态/基建当前态写入新表；随后已重新构建 `target\debug\akbox-desktop.exe`
+- 未完成：这一步只完成了森空岛账号状态和基建当前态的最小入库，还没有继续把理智提醒、基建疲劳提醒或库存相关字段接到规则层；M6 仓库扫描主线也还没正式开始
+- 风险/阻塞：当前 `status` 表仍保留了较多 raw JSON，因为实时字段面还在扩；后续若要把理智、等级、主线进度等字段直接用于提醒或仪表盘，需要再从 `status.raw_json` 中挑出稳定字段做二次结构化。另外 desktop 可执行文件在用户运行时会被 Windows 锁住，更新后仍需要用户重启新二进制才能看到这轮 UI
+- 下一步：正式进入 M6 仓库扫描 v1，优先把现有仓库模板和 ROI 接成“翻页 + 重复页判定 + 结束页判定 + `inventory_snapshot / inventory_item_state` 落库”的最小闭环
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:34:00 +08:00
+- 阶段：M6 / 阶段 6：仓库扫描 v1
+- 新需求：在正式进入 M6 后，先实现“仓库页签名 / 重复页判定基元”这一条最小闭环，为后续翻页与结束页判断提供稳定基础
+- 新重要记忆：当前仓库模板里已经有 `inventory_materials_scan_cn`，其中 4 个可见页签名 ROI 和 1 个数字样本 ROI 就是为重复页/结束页判定准备的；因此 M6 的第一步不该重新发明另一套模板体系，而应直接复用这组 ROI 生成页签名，再围绕它做“同页 / 不同页”的稳定比较
+- 已完成：已在开始编码前确认这一步只做页签名与重复页判定基元，不提前扩成完整翻页状态机，也不把 `inventory_snapshot` 落库一起塞进同一轮
+- 未完成：当前 `akbox-device` 还没有正式的仓库页签名结构、比较函数或基于 ROI PNG 的重复页判定能力
+- 风险/阻塞：如果这里直接用整页哈希做重复页判断，后续会因为截图时间、提示气泡或细微像素抖动而误判；必须把判断收口在当前模板定义的稳定 ROI 上
+- 下一步：在 `akbox-device` 中新增仓库页签名提取与比较函数，基于 `inventory_materials_scan_cn` 的 ROI 生成稳定签名，并补 golden tests；完成后再继续接翻页动作和 `inventory_snapshot` 落库
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:39:00 +08:00
+- 阶段：M6 / 阶段 6：仓库扫描 v1
+- 新需求：完成仓库页签名 / 重复页判定的第一个可测试基元，并确保后续翻页逻辑能直接复用，不再依赖整页哈希
+- 新重要记忆：M6 当前仓库页签名已固定为“只使用 `inventory_materials_scan_cn` 中 4 个 `Generic` signature ROI”的平均哈希，不把整页像素或重复的 `numeric_ocr` ROI 混进去；比较规则当前按同页模板下逐 ROI 的 Hamming distance 做判定，后续翻页状态机应直接复用这套基元，而不是另起一套截图比较逻辑
+- 已完成：已在 `crates/akbox-device/src/vision.rs` 中新增 `InventoryPageSignature`、`InventoryPageSignatureEntry`、`InventoryPageSignatureComparison`、`build_inventory_page_signature` 和 `compare_inventory_page_signatures`，并在 `crates/akbox-device/src/lib.rs` 导出；当前实现会从现有模板裁出 4 个稳定签名 ROI，计算 64-bit 平均哈希，并按逐 ROI Hamming distance 判断是否同页。新增两条 golden tests：同一张正式仓库样例图重复计算时签名一致；对左侧签名 ROI 做明显修改后，比较结果能正确判成“不是同一页”。执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，其中 `akbox-device` 当前测试数为 `24`；另外已重新构建 `target\debug\akbox-desktop.exe`
+- 未完成：这一步还只是重复页判定基元，没有把真实翻页动作、结束页检测、扫描循环或 `inventory_snapshot / inventory_item_state` 写库接起来
+- 风险/阻塞：当前签名规则只验证了同图一致和明显差异页可区分，还没有实机验证“相邻不同仓库页但局部视觉很像”时的误判率；进入下一步前，最好先用一到两组真实连续翻页截图补充对比样例
+- 下一步：继续 M6，基于这套页签名基元实现仓库扫描循环里的“翻页后重复页检测 / 结束页判定”，并开始把单页识别结果汇总成 `inventory_snapshot / inventory_item_state`
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:48:00 +08:00
+- 阶段：仓库整理 / 提交前清理
+- 新需求：用户要求将本轮所有内容分成几个 commit 推送到远端，并明确要求注意隐私保护
+- 新重要记忆：提交前必须再次检查测试、示例文件与 AGENTS 追加记录，确保不会把本地 UID、`cred`、`token`、`access_token` 或本地鉴权文件推到远端；当前已确认 `uid.txt` 与 `target\debug\skland-auth.local.toml` 仍由 `.gitignore` 忽略，另外测试里出现过的真实本地 UID 也必须替换成纯占位值
+- 已完成：已把 `crates/akbox-data/src/skland.rs` 测试中的真实本地 UID 全部替换为统一占位 `TEST_UID / SECONDARY_TEST_UID`，避免把用户本地标识推到远端；随后重新执行 `cargo fmt --all`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全部通过，并再次确认 `uid.txt`、`target\debug\skland-auth.local.toml` 与本地 smoke DB 仍被 `.gitignore` 排除
+- 未完成：当前还没有真正分组提交和执行 `git push`
+- 风险/阻塞：本轮改动跨 M3/M4/M5/M6，`desktop/main.rs`、`cli/main.rs`、`repository.rs` 等文件都叠加了多阶段内容，无法完全按阶段切成绝对纯净的小提交；接下来的 commit 只能按“相对清晰的功能组”整合，而不是逐里程碑无交叉拆分
+- 下一步：按功能组整理 commit，提交前再次检查 staged 文件不包含本地敏感文件，然后推送到 `origin/master`
+
+### 变更记录
+
+- 日期时间：2026-03-17 02:58:00 +08:00
+- 阶段：仓库整理 / 分组提交
+- 新需求：在完成隐私清理后，将本轮改动按相对清晰的功能组提交并推送远端，避免把本地敏感文件或个人标识带入公开历史
+- 新重要记忆：当前可稳定落地的提交分组为“数据层与森空岛导入”“设备视觉与模板资产”“CLI/desktop 集成”“AGENTS 文档记录”；其中最后一组只保留里程碑与隐私审计结论，不夹带任何本地鉴权内容
+- 已完成：已完成三组功能提交的整理策略确认，并完成其中前两组功能提交与应用层功能提交；当前提交顺序固定为数据层、设备视觉层、应用层，最后再单独提交 `AGENTS.md` 文档收口
+- 未完成：`AGENTS.md` 还未单独提交，远端 `origin/master` 也尚未执行 push
+- 风险/阻塞：由于本轮跨度大，功能提交之间仍存在少量时间顺序上的交叉背景，但 staged 文件已经按路径与职责隔离；只要继续保持 `AGENTS.md` 单独提交，就不会把文档改动混入功能 commit
+- 下一步：单独提交 `AGENTS.md`，复查工作树为空后执行 `git push origin master`
