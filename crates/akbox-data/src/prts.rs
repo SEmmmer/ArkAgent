@@ -17,6 +17,7 @@ pub const DEFAULT_PRTS_RECIPE_INDEX_URL: &str = "https://prts.wiki/api.php?actio
 
 const PRTS_OPERATOR_ELITE_GROWTH_SECTION: &str = "精英化材料";
 const PRTS_OPERATOR_SKILL_GROWTH_SECTION: &str = "技能升级材料";
+const PRTS_OPERATOR_BUILDING_SKILL_SECTION: &str = "后勤技能";
 const PRTS_OPERATOR_INDEX_PAGE_TITLE: &str = "干员一览";
 const PRTS_OPERATOR_INDEX_QUERY_LIMIT: usize = 500;
 const PRTS_STAGE_INDEX_PAGE_TITLE: &str = "关卡一览";
@@ -328,6 +329,80 @@ impl PrtsClient {
         })
     }
 
+    pub fn fetch_operator_building_skills(
+        &self,
+    ) -> Result<PrtsOperatorBuildingSkillResponse, PrtsClientError> {
+        let operator_index = self.fetch_operator_index()?;
+        let collectible_operators = operator_index
+            .operators
+            .iter()
+            .filter(|operator| operator.is_box_collectible)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut latest_revision = operator_index.revision.parse::<i64>().unwrap_or_default();
+        let mut content_type = Some(operator_index.content_type.clone());
+        let mut raw_pages = Vec::new();
+        let mut building_skills = Vec::new();
+
+        for operator in &collectible_operators {
+            let sections = self.fetch_page_sections(&operator.page_title)?;
+            latest_revision =
+                latest_revision.max(sections.revision.parse::<i64>().unwrap_or_default());
+            if content_type.is_none() {
+                content_type = Some(sections.content_type.clone());
+            }
+
+            let mut raw_sections = Vec::new();
+            if let Some(section_index) = sections
+                .sections
+                .iter()
+                .find(|section| section.line == PRTS_OPERATOR_BUILDING_SKILL_SECTION)
+                .map(|section| section.index.as_str())
+            {
+                let (section_content_type, section_html) =
+                    self.fetch_page_section_html(&operator.page_title, section_index)?;
+                if content_type.is_none() {
+                    content_type = Some(section_content_type);
+                }
+
+                building_skills.extend(extract_operator_building_skill_definitions(
+                    operator,
+                    &section_html,
+                )?);
+                raw_sections.push(json!({
+                    "line": PRTS_OPERATOR_BUILDING_SKILL_SECTION,
+                    "index": section_index,
+                    "html": section_html,
+                }));
+            }
+
+            raw_pages.push(json!({
+                "operator_id": operator.operator_id,
+                "page_title": operator.page_title,
+                "page_revision": sections.revision,
+                "sections": raw_sections,
+            }));
+        }
+
+        let raw_body = serde_json::to_vec(&json!({
+            "operator_index_revision": operator_index.revision,
+            "pages": raw_pages,
+        }))
+        .map_err(|source| PrtsClientError::SerializeResponseBody { source })?;
+
+        Ok(PrtsOperatorBuildingSkillResponse {
+            revision: if latest_revision > 0 {
+                latest_revision.to_string()
+            } else {
+                operator_index.revision
+            },
+            operators: collectible_operators,
+            building_skills,
+            content_type: content_type.unwrap_or_else(|| "application/json".to_string()),
+            raw_body,
+        })
+    }
+
     fn fetch_page_revision(&self, page_title: &str) -> Result<String, PrtsClientError> {
         let request_url = self.build_api_url(&[
             ("action", "parse"),
@@ -511,6 +586,15 @@ pub struct PrtsOperatorGrowthResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PrtsOperatorBuildingSkillResponse {
+    pub revision: String,
+    pub operators: Vec<PrtsOperatorDefinition>,
+    pub building_skills: Vec<PrtsOperatorBuildingSkillDefinition>,
+    pub content_type: String,
+    pub raw_body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PrtsItemDefinition {
     pub item_id: String,
     pub name_zh: String,
@@ -572,6 +656,14 @@ pub struct PrtsOperatorGrowthDefinition {
     pub operator_id: String,
     pub stage_label: String,
     pub material_slot: String,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrtsOperatorBuildingSkillDefinition {
+    pub operator_id: String,
+    pub room_type: String,
+    pub skill_name: String,
     pub raw_json: serde_json::Value,
 }
 
@@ -1250,6 +1342,114 @@ fn build_operator_growth_definition(
     }
 }
 
+fn extract_operator_building_skill_definitions(
+    operator: &PrtsOperatorDefinition,
+    html: &str,
+) -> Result<Vec<PrtsOperatorBuildingSkillDefinition>, PrtsClientError> {
+    let document = Html::parse_document(html);
+    let table_selector = parse_html_selector("table")?;
+    let row_selector = parse_html_selector("tr")?;
+    let cell_selector = parse_html_selector("th, td")?;
+    let image_selector = parse_html_selector("img")?;
+    let text_body = normalize_text(&document.root_element().text().collect::<Vec<_>>().join(" "));
+
+    let mut building_skills = Vec::new();
+    let mut sort_order = 0_i64;
+
+    for table in document.select(&table_selector) {
+        let mut skill_slot_label = None::<String>;
+
+        for row in table.select(&row_selector) {
+            let cells = row.select(&cell_selector).collect::<Vec<_>>();
+            if cells.is_empty() {
+                continue;
+            }
+
+            let cell_texts = cells
+                .iter()
+                .map(|cell| normalize_text(&cell.text().collect::<Vec<_>>().join(" ")))
+                .collect::<Vec<_>>();
+            let row_text = normalize_text(&cell_texts.join(" "));
+            let td_count = cells
+                .iter()
+                .filter(|cell| cell.value().name() == "td")
+                .count();
+
+            if td_count == 0 {
+                if row_text.contains("条件")
+                    && row_text.contains("房间")
+                    && row_text.contains("描述")
+                    && cell_texts.len() >= 3
+                {
+                    skill_slot_label = cell_texts.get(2).cloned();
+                }
+                continue;
+            }
+
+            if cells.len() < 5 {
+                continue;
+            }
+
+            let condition_label = cell_texts[0].clone();
+            let skill_name = cell_texts[2].clone();
+            let room_type_label = cell_texts[3].clone();
+            let description = normalize_optional_text(&cell_texts[4]);
+
+            if condition_label.is_empty() || skill_name.is_empty() || room_type_label.is_empty() {
+                continue;
+            }
+
+            sort_order += 1;
+            let condition_key = building_skill_condition_key(&condition_label)
+                .unwrap_or_else(|| format!("row_{sort_order}"));
+            let room_type_key = building_skill_room_type_key(&room_type_label);
+            let image = cells[1].select(&image_selector).next();
+            let icon_alt = image
+                .as_ref()
+                .and_then(|image| image.value().attr("alt"))
+                .map(ToOwned::to_owned);
+            let icon_url = image
+                .as_ref()
+                .and_then(|image| image.value().attr("src"))
+                .map(ToOwned::to_owned);
+
+            building_skills.push(PrtsOperatorBuildingSkillDefinition {
+                operator_id: operator.operator_id.clone(),
+                room_type: room_type_key.clone(),
+                skill_name: skill_name.clone(),
+                raw_json: json!({
+                    "operator_id": operator.operator_id,
+                    "operator_name_zh": operator.name_zh,
+                    "page_title": operator.page_title,
+                    "condition_key": condition_key,
+                    "condition_label": condition_label,
+                    "skill_slot_label": skill_slot_label.clone(),
+                    "room_type_key": room_type_key,
+                    "room_type_label": room_type_label,
+                    "skill_name": skill_name,
+                    "description": description,
+                    "icon_alt": icon_alt,
+                    "icon_url": icon_url,
+                    "sort_order": sort_order,
+                }),
+            });
+        }
+    }
+
+    if !building_skills.is_empty() {
+        Ok(building_skills)
+    } else if text_body.contains("后勤技能") && text_body.contains("暂无") {
+        Ok(Vec::new())
+    } else {
+        Err(PrtsClientError::ParseOperatorBuildingSkillHtml {
+            message: format!(
+                "operator {} building skill section does not contain any rows",
+                operator.page_title
+            ),
+        })
+    }
+}
+
 fn parse_item_definition(tag: &str) -> Result<PrtsItemDefinition, PrtsClientError> {
     let item_id = decode_html_attribute(&required_attribute(tag, "data-id").ok_or_else(|| {
         PrtsClientError::ParseItemIndexHtml {
@@ -1552,6 +1752,35 @@ fn parse_material_count_text(text: &str) -> Option<i64> {
     Some((value * multiplier).round() as i64)
 }
 
+fn building_skill_condition_key(condition_label: &str) -> Option<String> {
+    let digits = condition_label
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .collect::<String>();
+
+    if condition_label.starts_with("精英") && !digits.is_empty() {
+        Some(format!("elite_{digits}"))
+    } else {
+        None
+    }
+}
+
+fn building_skill_room_type_key(room_type_label: &str) -> String {
+    match room_type_label {
+        "控制中枢" => "control_center",
+        "贸易站" => "trading_post",
+        "制造站" => "manufacturing_station",
+        "发电站" => "power_plant",
+        "会客室" => "reception_room",
+        "办公室" => "office",
+        "宿舍" => "dormitory",
+        "加工站" => "workshop",
+        "训练室" => "training_room",
+        _ => room_type_label,
+    }
+    .to_string()
+}
+
 fn parse_percent_text(text: &str) -> Option<f64> {
     let normalized = text.trim().trim_end_matches('%');
     if normalized.is_empty() {
@@ -1641,6 +1870,8 @@ pub enum PrtsClientError {
     ParseRecipeIndexHtml { message: String },
     #[error("failed to parse PRTS operator growth HTML: {message}")]
     ParseOperatorGrowthHtml { message: String },
+    #[error("failed to parse PRTS operator building skill HTML: {message}")]
+    ParseOperatorBuildingSkillHtml { message: String },
     #[error("failed to parse PRTS operator index payload: {message}")]
     ParseOperatorIndexPayload { message: String },
     #[error("failed to parse PRTS stage index payload: {message}")]
@@ -1662,6 +1893,7 @@ impl PrtsClientError {
             | Self::ParseItemIndexHtml { .. }
             | Self::ParseRecipeIndexHtml { .. }
             | Self::ParseOperatorGrowthHtml { .. }
+            | Self::ParseOperatorBuildingSkillHtml { .. }
             | Self::ParseOperatorIndexPayload { .. }
             | Self::ParseStageIndexPayload { .. } => false,
         }
@@ -2001,6 +2233,83 @@ mod tests {
         assert_eq!(growth.growths[3].material_slot, "第1技能");
         assert!(growth.content_type.contains("application/json"));
         assert!(!growth.raw_body.is_empty());
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn client_fetches_operator_building_skills_from_section_endpoints() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server = thread::spawn(move || {
+            for _ in 0..6 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request_buffer = [0_u8; 4096];
+                let bytes_read = stream.read(&mut request_buffer).unwrap();
+                let request = String::from_utf8_lossy(&request_buffer[..bytes_read]);
+
+                let body = if request.contains("page=%E5%B9%B2%E5%91%98%E4%B8%80%E8%A7%88") {
+                    r#"{"parse":{"title":"干员一览","pageid":2101,"revid":335492}}"#
+                } else if request.contains("%E5%B9%B2%E5%91%98id") {
+                    r#"{"query":{"results":{"能天使":{"printouts":{"干员id":["char_103_angel"],"稀有度":["5"],"职业":["狙击"],"分支":[{"fulltext":"速射手"}],"分类":[{"fulltext":"分类:干员"},{"fulltext":"分类:狙击干员"}]},"fulltext":"能天使","fullurl":"//prts.wiki/w/%E8%83%BD%E5%A4%A9%E4%BD%BF"},"阿米娅":{"printouts":{"干员id":["char_002_amiya"],"稀有度":["5"],"职业":["术师"],"分支":[{"fulltext":"中坚术师"}],"分类":[{"fulltext":"分类:干员"},{"fulltext":"分类:术师干员"}]},"fulltext":"阿米娅","fullurl":"//prts.wiki/w/%E9%98%BF%E7%B1%B3%E5%A8%85"},"预备干员-重装":{"printouts":{"干员id":["char_513_apionr"],"稀有度":["3"],"职业":["重装"],"分支":[],"分类":[{"fulltext":"分类:干员"},{"fulltext":"分类:重装干员"}]},"fulltext":"预备干员-重装","fullurl":"//prts.wiki/w/%E9%A2%84%E5%A4%87%E5%B9%B2%E5%91%98-%E9%87%8D%E8%A3%85"}}}}"#
+                } else if request.contains("page=%E8%83%BD%E5%A4%A9%E4%BD%BF&prop=sections%7Crevid")
+                {
+                    r#"{"parse":{"title":"能天使","pageid":1769,"revid":400002,"sections":[{"line":"后勤技能","index":"8"}]}}"#
+                } else if request.contains("page=%E9%98%BF%E7%B1%B3%E5%A8%85&prop=sections%7Crevid")
+                {
+                    r#"{"parse":{"title":"阿米娅","pageid":1751,"revid":400003,"sections":[{"line":"后勤技能","index":"8"}]}}"#
+                } else if request.contains("page=%E8%83%BD%E5%A4%A9%E4%BD%BF&prop=text&section=8") {
+                    r#"{"parse":{"title":"能天使","pageid":1769,"text":{"*":"<div class=\"mw-content-ltr mw-parser-output\"><table class=\"wikitable logo\"><tbody><tr><th>条件</th><th>图标</th><th>技能1</th><th>房间</th><th>描述</th></tr><tr><td>精英0</td><td><img alt=\"企鹅物流·α\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_tra_spd1.png\" /></td><td>企鹅物流·α</td><td>贸易站</td><td>进驻贸易站时，订单获取效率+20%</td></tr><tr><td>精英2</td><td><img alt=\"物流专家\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_tra_spd3.png\" /></td><td>物流专家</td><td>贸易站</td><td>进驻贸易站时，订单获取效率+35%</td></tr></tbody></table></div>"}}}"#
+                } else {
+                    r#"{"parse":{"title":"阿米娅","pageid":1751,"text":{"*":"<div class=\"mw-content-ltr mw-parser-output\"><table class=\"wikitable logo\"><tbody><tr><th>条件</th><th>图标</th><th>技能1</th><th>房间</th><th>描述</th></tr><tr><td>精英0</td><td><img alt=\"合作协议\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_ctrl_t_spd.png\" /></td><td>合作协议</td><td>控制中枢</td><td>进驻控制中枢时，所有贸易站订单效率+7%</td></tr></tbody></table><table class=\"wikitable logo\"><tbody><tr><th>条件</th><th>图标</th><th>技能2</th><th>房间</th><th>描述</th></tr><tr><td>精英2</td><td><img alt=\"小提琴独奏\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_dorm_all2.png\" /></td><td>小提琴独奏</td><td>宿舍</td><td>进驻宿舍时，该宿舍内所有干员的心情每小时恢复+0.15</td></tr></tbody></table></div>"}}}"#
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+
+        let client = PrtsClient::with_urls_and_recipe(
+            format!("http://{address}/api.php"),
+            format!("http://{address}/items"),
+            format!("http://{address}/recipes"),
+        )
+        .unwrap();
+        let building_skills = client.fetch_operator_building_skills().unwrap();
+
+        assert_eq!(building_skills.revision, "400003");
+        assert_eq!(building_skills.operators.len(), 2);
+        assert_eq!(building_skills.building_skills.len(), 4);
+        assert!(
+            building_skills
+                .operators
+                .iter()
+                .all(|operator| operator.name_zh != "预备干员-重装")
+        );
+        assert_eq!(
+            building_skills.building_skills[0].operator_id,
+            "char_103_angel"
+        );
+        assert_eq!(building_skills.building_skills[0].room_type, "trading_post");
+        assert_eq!(building_skills.building_skills[0].skill_name, "企鹅物流·α");
+        assert_eq!(
+            building_skills.building_skills[0].raw_json["condition_label"],
+            serde_json::json!("精英0")
+        );
+        assert_eq!(
+            building_skills.building_skills[2].raw_json["room_type_label"],
+            serde_json::json!("控制中枢")
+        );
+        assert_eq!(
+            building_skills.building_skills[3].raw_json["skill_slot_label"],
+            serde_json::json!("技能2")
+        );
+        assert!(building_skills.content_type.contains("application/json"));
+        assert!(!building_skills.raw_body.is_empty());
 
         server.join().unwrap();
     }

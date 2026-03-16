@@ -10,6 +10,8 @@ pub const DEFAULT_DATABASE_DIRECTORY_NAME: &str = "data";
 pub const DEFAULT_DATABASE_FILE_NAME: &str = "arkagent.db";
 
 const INITIAL_MIGRATION: &str = include_str!("../../../migrations/0001_initial.sql");
+const SKLAND_STATUS_BUILDING_MIGRATION: &str =
+    include_str!("../../../migrations/0002_skland_status_building.sql");
 
 pub struct AppDatabase {
     path: PathBuf,
@@ -68,7 +70,10 @@ fn configure_connection(connection: &Connection) -> Result<(), DatabaseError> {
 }
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(INITIAL_MIGRATION)])
+    Migrations::new(vec![
+        M::up(INITIAL_MIGRATION),
+        M::up(SKLAND_STATUS_BUILDING_MIGRATION),
+    ])
 }
 
 #[derive(Debug, Error)]
@@ -122,6 +127,8 @@ mod tests {
             "inventory_item_state",
             "operator_snapshot",
             "operator_state",
+            "player_status_snapshot",
+            "player_status_state",
             "scan_artifact",
             "recognition_review_queue",
             "resource_policy",
@@ -129,6 +136,8 @@ mod tests {
             "floor_profile_member",
             "planner_run",
             "planner_recommendation",
+            "base_building_snapshot",
+            "base_building_state",
             "base_layout_config",
             "base_shift_plan",
             "alert",

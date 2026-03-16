@@ -4,12 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+hmac = "0.12"
+md5 = "0.8"
 reqwest.workspace = true
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 thiserror.workspace = true
 time.workspace = true
+toml.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+akbox-device = { path = "../akbox-device" }
+image.workspace = true

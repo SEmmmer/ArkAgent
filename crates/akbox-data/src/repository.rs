@@ -362,6 +362,728 @@ impl<'connection> AppRepository<'connection> {
             .map_err(|source| RepositoryError::Sqlite { source })
     }
 
+    pub fn count_external_operator_building_skills(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row(
+                "SELECT COUNT(*) FROM external_operator_building_skill",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_scan_artifacts(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM scan_artifact", [], |row| row.get(0))
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_operator_snapshots(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM operator_snapshot", [], |row| {
+                row.get(0)
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_operator_states(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM operator_state", [], |row| row.get(0))
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_player_status_snapshots(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM player_status_snapshot", [], |row| {
+                row.get(0)
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_player_status_states(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM player_status_state", [], |row| {
+                row.get(0)
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_base_building_snapshots(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM base_building_snapshot", [], |row| {
+                row.get(0)
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_base_building_states(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM base_building_state", [], |row| {
+                row.get(0)
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn count_recognition_review_queue(&self) -> Result<i64, RepositoryError> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM recognition_review_queue", [], |row| {
+                row.get(0)
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn list_operator_snapshots(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<OperatorSnapshotRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT snapshot_id, source, confidence, note, created_at
+                 FROM operator_snapshot
+                 ORDER BY created_at DESC, snapshot_id DESC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(OperatorSnapshotRecord {
+                    snapshot_id: row.get(0)?,
+                    source: row.get(1)?,
+                    confidence: row.get(2)?,
+                    note: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        Ok(rows)
+    }
+
+    pub fn list_operator_states(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<OperatorStateRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT
+                    operator_id,
+                    name_zh,
+                    owned,
+                    rarity,
+                    profession,
+                    branch,
+                    elite_stage,
+                    level,
+                    skill_level,
+                    mastery_1,
+                    mastery_2,
+                    mastery_3,
+                    module_state,
+                    module_level,
+                    starred,
+                    emergency_target,
+                    recognition_confidence,
+                    last_scanned_at,
+                    snapshot_id,
+                    updated_at
+                 FROM operator_state
+                 ORDER BY owned DESC, rarity DESC, name_zh ASC, operator_id ASC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(OperatorStateRecord {
+                    operator_id: row.get(0)?,
+                    name_zh: row.get(1)?,
+                    owned: row.get::<_, i64>(2)? != 0,
+                    rarity: row.get(3)?,
+                    profession: row.get(4)?,
+                    branch: row.get(5)?,
+                    elite_stage: row.get(6)?,
+                    level: row.get(7)?,
+                    skill_level: row.get(8)?,
+                    mastery_1: row.get(9)?,
+                    mastery_2: row.get(10)?,
+                    mastery_3: row.get(11)?,
+                    module_state: row.get(12)?,
+                    module_level: row.get(13)?,
+                    starred: row.get::<_, i64>(14)? != 0,
+                    emergency_target: row.get::<_, i64>(15)? != 0,
+                    recognition_confidence: row.get(16)?,
+                    last_scanned_at: row.get(17)?,
+                    snapshot_id: row.get(18)?,
+                    updated_at: row.get(19)?,
+                })
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        Ok(rows)
+    }
+
+    pub fn list_player_status_states(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<PlayerStatusStateRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT
+                    uid,
+                    account_name,
+                    store_ts,
+                    status_keys_json,
+                    snapshot_id,
+                    updated_at,
+                    raw_json
+                 FROM player_status_state
+                 ORDER BY updated_at DESC, uid ASC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(PlayerStatusStateRecord {
+                    uid: row.get(0)?,
+                    account_name: row.get(1)?,
+                    store_ts: row.get(2)?,
+                    status_keys_json: row.get(3)?,
+                    snapshot_id: row.get(4)?,
+                    updated_at: row.get(5)?,
+                    raw_json: row.get(6)?,
+                })
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        Ok(rows)
+    }
+
+    pub fn list_base_building_states(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<BaseBuildingStateRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT
+                    uid,
+                    has_control,
+                    has_meeting,
+                    has_training,
+                    has_hire,
+                    dormitory_count,
+                    manufacture_count,
+                    trading_count,
+                    power_count,
+                    tired_char_count,
+                    building_keys_json,
+                    snapshot_id,
+                    updated_at,
+                    raw_json
+                 FROM base_building_state
+                 ORDER BY updated_at DESC, uid ASC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(BaseBuildingStateRecord {
+                    uid: row.get(0)?,
+                    has_control: row.get::<_, i64>(1)? != 0,
+                    has_meeting: row.get::<_, i64>(2)? != 0,
+                    has_training: row.get::<_, i64>(3)? != 0,
+                    has_hire: row.get::<_, i64>(4)? != 0,
+                    dormitory_count: row.get(5)?,
+                    manufacture_count: row.get(6)?,
+                    trading_count: row.get(7)?,
+                    power_count: row.get(8)?,
+                    tired_char_count: row.get(9)?,
+                    building_keys_json: row.get(10)?,
+                    snapshot_id: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    raw_json: row.get(13)?,
+                })
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        Ok(rows)
+    }
+
+    pub fn replace_operator_state_snapshot(
+        &self,
+        snapshot: &OperatorSnapshotInsert,
+        entries: &[OperatorStateUpsert],
+    ) -> Result<(), RepositoryError> {
+        let expected_operator_ids = entries
+            .iter()
+            .map(|entry| entry.operator_id.as_str())
+            .collect::<HashSet<_>>();
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute(
+                "INSERT INTO operator_snapshot (
+                    snapshot_id,
+                    source,
+                    confidence,
+                    note,
+                    created_at
+                ) VALUES (
+                    ?1,
+                    ?2,
+                    ?3,
+                    ?4,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )",
+                params![
+                    snapshot.snapshot_id,
+                    snapshot.source,
+                    snapshot.confidence,
+                    snapshot.note,
+                ],
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO operator_state (
+                    operator_id,
+                    name_zh,
+                    owned,
+                    rarity,
+                    profession,
+                    branch,
+                    elite_stage,
+                    level,
+                    skill_level,
+                    mastery_1,
+                    mastery_2,
+                    mastery_3,
+                    module_state,
+                    module_level,
+                    starred,
+                    emergency_target,
+                    recognition_confidence,
+                    last_scanned_at,
+                    snapshot_id,
+                    updated_at
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                    ?11, ?12, ?13, ?14, 0, 0, ?15, ?16, ?17,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )
+                ON CONFLICT(operator_id) DO UPDATE
+                SET name_zh = excluded.name_zh,
+                    owned = excluded.owned,
+                    rarity = excluded.rarity,
+                    profession = excluded.profession,
+                    branch = excluded.branch,
+                    elite_stage = excluded.elite_stage,
+                    level = excluded.level,
+                    skill_level = excluded.skill_level,
+                    mastery_1 = excluded.mastery_1,
+                    mastery_2 = excluded.mastery_2,
+                    mastery_3 = excluded.mastery_3,
+                    module_state = excluded.module_state,
+                    module_level = excluded.module_level,
+                    recognition_confidence = excluded.recognition_confidence,
+                    last_scanned_at = excluded.last_scanned_at,
+                    snapshot_id = excluded.snapshot_id,
+                    updated_at = excluded.updated_at",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        for entry in entries {
+            statement
+                .execute(params![
+                    entry.operator_id,
+                    entry.name_zh,
+                    if entry.owned { 1 } else { 0 },
+                    entry.rarity,
+                    entry.profession,
+                    entry.branch,
+                    entry.elite_stage,
+                    entry.level,
+                    entry.skill_level,
+                    entry.mastery_1,
+                    entry.mastery_2,
+                    entry.mastery_3,
+                    entry.module_state,
+                    entry.module_level,
+                    entry.recognition_confidence,
+                    entry.last_scanned_at,
+                    entry.snapshot_id,
+                ])
+                .map_err(|source| RepositoryError::Sqlite { source })?;
+        }
+
+        drop(statement);
+
+        if !expected_operator_ids.is_empty() {
+            let mut stale_query = transaction
+                .prepare("SELECT operator_id FROM operator_state")
+                .map_err(|source| RepositoryError::Sqlite { source })?;
+            let rows = stale_query
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|source| RepositoryError::Sqlite { source })?;
+            let mut stale_operator_ids = Vec::new();
+
+            for row in rows {
+                let operator_id = row.map_err(|source| RepositoryError::Sqlite { source })?;
+                if !expected_operator_ids.contains(operator_id.as_str()) {
+                    stale_operator_ids.push(operator_id);
+                }
+            }
+
+            drop(stale_query);
+
+            if !stale_operator_ids.is_empty() {
+                let mut delete_statement = transaction
+                    .prepare("DELETE FROM operator_state WHERE operator_id = ?1")
+                    .map_err(|source| RepositoryError::Sqlite { source })?;
+                for operator_id in stale_operator_ids {
+                    delete_statement
+                        .execute(params![operator_id])
+                        .map_err(|source| RepositoryError::Sqlite { source })?;
+                }
+            }
+        } else {
+            transaction
+                .execute("DELETE FROM operator_state", [])
+                .map_err(|source| RepositoryError::Sqlite { source })?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn replace_player_status_and_base_building_snapshot(
+        &self,
+        player_status_snapshot: &PlayerStatusSnapshotInsert,
+        player_status_state: &PlayerStatusStateUpsert,
+        base_building_snapshot: &BaseBuildingSnapshotInsert,
+        base_building_state: &BaseBuildingStateUpsert,
+    ) -> Result<(), RepositoryError> {
+        let player_status_keys_json =
+            serde_json::to_string(&player_status_snapshot.status_keys_json)
+                .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let player_status_raw_json = serde_json::to_string(&player_status_snapshot.raw_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let player_state_keys_json = serde_json::to_string(&player_status_state.status_keys_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let player_state_raw_json = serde_json::to_string(&player_status_state.raw_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let base_snapshot_keys_json =
+            serde_json::to_string(&base_building_snapshot.building_keys_json)
+                .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let base_snapshot_raw_json = serde_json::to_string(&base_building_snapshot.raw_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let base_state_keys_json = serde_json::to_string(&base_building_state.building_keys_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+        let base_state_raw_json = serde_json::to_string(&base_building_state.raw_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute(
+                "INSERT INTO player_status_snapshot (
+                    snapshot_id,
+                    source,
+                    uid,
+                    account_name,
+                    store_ts,
+                    status_keys_json,
+                    raw_json,
+                    created_at
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )",
+                params![
+                    player_status_snapshot.snapshot_id,
+                    player_status_snapshot.source,
+                    player_status_snapshot.uid,
+                    player_status_snapshot.account_name,
+                    player_status_snapshot.store_ts,
+                    player_status_keys_json,
+                    player_status_raw_json,
+                ],
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute(
+                "INSERT INTO player_status_state (
+                    uid,
+                    account_name,
+                    store_ts,
+                    status_keys_json,
+                    snapshot_id,
+                    updated_at,
+                    raw_json
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    ?6
+                )
+                ON CONFLICT(uid) DO UPDATE
+                SET account_name = excluded.account_name,
+                    store_ts = excluded.store_ts,
+                    status_keys_json = excluded.status_keys_json,
+                    snapshot_id = excluded.snapshot_id,
+                    updated_at = excluded.updated_at,
+                    raw_json = excluded.raw_json",
+                params![
+                    player_status_state.uid,
+                    player_status_state.account_name,
+                    player_status_state.store_ts,
+                    player_state_keys_json,
+                    player_status_state.snapshot_id,
+                    player_state_raw_json,
+                ],
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute(
+                "INSERT INTO base_building_snapshot (
+                    snapshot_id,
+                    source,
+                    uid,
+                    has_control,
+                    has_meeting,
+                    has_training,
+                    has_hire,
+                    dormitory_count,
+                    manufacture_count,
+                    trading_count,
+                    power_count,
+                    tired_char_count,
+                    building_keys_json,
+                    raw_json,
+                    created_at
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )",
+                params![
+                    base_building_snapshot.snapshot_id,
+                    base_building_snapshot.source,
+                    base_building_snapshot.uid,
+                    if base_building_snapshot.has_control {
+                        1
+                    } else {
+                        0
+                    },
+                    if base_building_snapshot.has_meeting {
+                        1
+                    } else {
+                        0
+                    },
+                    if base_building_snapshot.has_training {
+                        1
+                    } else {
+                        0
+                    },
+                    if base_building_snapshot.has_hire {
+                        1
+                    } else {
+                        0
+                    },
+                    base_building_snapshot.dormitory_count,
+                    base_building_snapshot.manufacture_count,
+                    base_building_snapshot.trading_count,
+                    base_building_snapshot.power_count,
+                    base_building_snapshot.tired_char_count,
+                    base_snapshot_keys_json,
+                    base_snapshot_raw_json,
+                ],
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute(
+                "INSERT INTO base_building_state (
+                    uid,
+                    has_control,
+                    has_meeting,
+                    has_training,
+                    has_hire,
+                    dormitory_count,
+                    manufacture_count,
+                    trading_count,
+                    power_count,
+                    tired_char_count,
+                    building_keys_json,
+                    snapshot_id,
+                    updated_at,
+                    raw_json
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    ?13
+                )
+                ON CONFLICT(uid) DO UPDATE
+                SET has_control = excluded.has_control,
+                    has_meeting = excluded.has_meeting,
+                    has_training = excluded.has_training,
+                    has_hire = excluded.has_hire,
+                    dormitory_count = excluded.dormitory_count,
+                    manufacture_count = excluded.manufacture_count,
+                    trading_count = excluded.trading_count,
+                    power_count = excluded.power_count,
+                    tired_char_count = excluded.tired_char_count,
+                    building_keys_json = excluded.building_keys_json,
+                    snapshot_id = excluded.snapshot_id,
+                    updated_at = excluded.updated_at,
+                    raw_json = excluded.raw_json",
+                params![
+                    base_building_state.uid,
+                    if base_building_state.has_control {
+                        1
+                    } else {
+                        0
+                    },
+                    if base_building_state.has_meeting {
+                        1
+                    } else {
+                        0
+                    },
+                    if base_building_state.has_training {
+                        1
+                    } else {
+                        0
+                    },
+                    if base_building_state.has_hire { 1 } else { 0 },
+                    base_building_state.dormitory_count,
+                    base_building_state.manufacture_count,
+                    base_building_state.trading_count,
+                    base_building_state.power_count,
+                    base_building_state.tired_char_count,
+                    base_state_keys_json,
+                    base_building_state.snapshot_id,
+                    base_state_raw_json,
+                ],
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .commit()
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn insert_scan_artifact(
+        &self,
+        artifact: &ScanArtifactInsert,
+    ) -> Result<(), RepositoryError> {
+        let payload_json = artifact
+            .payload_json
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+
+        self.connection
+            .execute(
+                "INSERT INTO scan_artifact (
+                    artifact_id,
+                    scan_kind,
+                    page_id,
+                    file_path,
+                    payload_json,
+                    confidence,
+                    created_at
+                ) VALUES (
+                    ?1,
+                    ?2,
+                    ?3,
+                    ?4,
+                    ?5,
+                    ?6,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )",
+                params![
+                    artifact.artifact_id,
+                    artifact.scan_kind,
+                    artifact.page_id,
+                    artifact.file_path,
+                    payload_json,
+                    artifact.confidence,
+                ],
+            )
+            .map(|_| ())
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn enqueue_recognition_review(
+        &self,
+        review: &RecognitionReviewQueueInsert,
+    ) -> Result<(), RepositoryError> {
+        let proposed_value_json = serde_json::to_string(&review.proposed_value_json)
+            .map_err(|source| RepositoryError::SerializeJson { source })?;
+
+        self.connection
+            .execute(
+                "INSERT INTO recognition_review_queue (
+                    review_id,
+                    artifact_id,
+                    entity_type,
+                    entity_id,
+                    proposed_value_json,
+                    confidence,
+                    status,
+                    review_note,
+                    created_at,
+                    reviewed_at
+                ) VALUES (
+                    ?1,
+                    ?2,
+                    ?3,
+                    ?4,
+                    ?5,
+                    ?6,
+                    ?7,
+                    ?8,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    NULL
+                )",
+                params![
+                    review.review_id,
+                    review.artifact_id,
+                    review.entity_type,
+                    review.entity_id,
+                    proposed_value_json,
+                    review.confidence,
+                    review.status,
+                    review.review_note,
+                ],
+            )
+            .map(|_| ())
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
     pub fn find_external_item_ids_by_name_zh(
         &self,
         name_zh: &str,
@@ -694,6 +1416,61 @@ impl<'connection> AppRepository<'connection> {
         Ok(rows)
     }
 
+    pub fn list_external_operator_building_skills(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ExternalOperatorBuildingSkillRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT
+                    skill.skill_id,
+                    skill.operator_id,
+                    COALESCE(operator_def.name_zh, skill.operator_id),
+                    skill.room_type,
+                    skill.skill_name,
+                    skill.raw_json
+                 FROM external_operator_building_skill AS skill
+                 LEFT JOIN external_operator_def AS operator_def
+                    ON operator_def.operator_id = skill.operator_id
+                 ORDER BY
+                    COALESCE(operator_def.rarity, -1) DESC,
+                    COALESCE(operator_def.name_zh, skill.operator_id) ASC,
+                    CAST(json_extract(skill.raw_json, '$.sort_order') AS INTEGER) ASC,
+                    skill.skill_id ASC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .map(|row| {
+                let (skill_id, operator_id, operator_name_zh, room_type, skill_name, raw_json) =
+                    row.map_err(|source| RepositoryError::Sqlite { source })?;
+                parse_external_operator_building_skill_record(
+                    skill_id,
+                    operator_id,
+                    operator_name_zh,
+                    room_type,
+                    skill_name,
+                    &raw_json,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
     pub fn list_external_recipes(
         &self,
         limit: i64,
@@ -781,6 +1558,85 @@ impl<'connection> AppRepository<'connection> {
         Ok(rows)
     }
 
+    pub fn list_scan_artifacts(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ScanArtifactRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT artifact_id, scan_kind, page_id, file_path, payload_json, confidence, created_at
+                 FROM scan_artifact
+                 ORDER BY created_at DESC, artifact_id DESC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(ScanArtifactRecord {
+                    artifact_id: row.get(0)?,
+                    scan_kind: row.get(1)?,
+                    page_id: row.get(2)?,
+                    file_path: row.get(3)?,
+                    payload_json: row.get(4)?,
+                    confidence: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        Ok(rows)
+    }
+
+    pub fn list_recognition_review_queue(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RecognitionReviewQueueRecord>, RepositoryError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT
+                    review_id,
+                    artifact_id,
+                    entity_type,
+                    entity_id,
+                    proposed_value_json,
+                    confidence,
+                    status,
+                    review_note,
+                    created_at,
+                    reviewed_at
+                 FROM recognition_review_queue
+                 ORDER BY created_at DESC, review_id DESC
+                 LIMIT ?1",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok(RecognitionReviewQueueRecord {
+                    review_id: row.get(0)?,
+                    artifact_id: row.get(1)?,
+                    entity_type: row.get(2)?,
+                    entity_id: row.get(3)?,
+                    proposed_value_json: row.get(4)?,
+                    confidence: row.get(5)?,
+                    status: row.get(6)?,
+                    review_note: row.get(7)?,
+                    created_at: row.get(8)?,
+                    reviewed_at: row.get(9)?,
+                })
+            })
+            .map_err(|source| RepositoryError::Sqlite { source })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        Ok(rows)
+    }
+
     pub fn upsert_external_event_notices(
         &self,
         entries: &[ExternalEventNoticeUpsert],
@@ -816,6 +1672,63 @@ impl<'connection> AppRepository<'connection> {
                      confirmed = excluded.confirmed,
                      raw_json = excluded.raw_json,
                      updated_at = excluded.updated_at",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        for entry in entries {
+            let raw_json = serde_json::to_string(&entry.raw_json)
+                .map_err(|source| RepositoryError::SerializeJson { source })?;
+
+            statement
+                .execute(params![
+                    entry.notice_id,
+                    entry.title,
+                    entry.notice_type,
+                    entry.published_at,
+                    entry.start_at,
+                    entry.end_at,
+                    entry.source_url,
+                    if entry.confirmed { 1_i64 } else { 0_i64 },
+                    raw_json,
+                ])
+                .map_err(|source| RepositoryError::Sqlite { source })?;
+        }
+
+        drop(statement);
+        transaction
+            .commit()
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn replace_external_event_notices(
+        &self,
+        entries: &[ExternalEventNoticeUpsert],
+    ) -> Result<(), RepositoryError> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute("DELETE FROM external_event_notice", [])
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO external_event_notice (
+                    notice_id,
+                    title,
+                    notice_type,
+                    published_at,
+                    start_at,
+                    end_at,
+                    source_url,
+                    confirmed,
+                    raw_json,
+                    updated_at
+                 ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 )",
             )
             .map_err(|source| RepositoryError::Sqlite { source })?;
 
@@ -1093,6 +2006,55 @@ impl<'connection> AppRepository<'connection> {
                     entry.operator_id,
                     entry.stage_label,
                     entry.material_slot,
+                    raw_json,
+                ])
+                .map_err(|source| RepositoryError::Sqlite { source })?;
+        }
+
+        drop(statement);
+        transaction
+            .commit()
+            .map_err(|source| RepositoryError::Sqlite { source })
+    }
+
+    pub fn replace_external_operator_building_skills(
+        &self,
+        entries: &[ExternalOperatorBuildingSkillUpsert],
+    ) -> Result<(), RepositoryError> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        transaction
+            .execute("DELETE FROM external_operator_building_skill", [])
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO external_operator_building_skill (
+                    skill_id,
+                    operator_id,
+                    room_type,
+                    skill_name,
+                    raw_json,
+                    updated_at
+                 ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 )",
+            )
+            .map_err(|source| RepositoryError::Sqlite { source })?;
+
+        for entry in entries {
+            let raw_json = serde_json::to_string(&entry.raw_json)
+                .map_err(|source| RepositoryError::SerializeJson { source })?;
+
+            statement
+                .execute(params![
+                    entry.skill_id,
+                    entry.operator_id,
+                    entry.room_type,
+                    entry.skill_name,
                     raw_json,
                 ])
                 .map_err(|source| RepositoryError::Sqlite { source })?;
@@ -1463,6 +2425,44 @@ fn parse_external_operator_growth_record(
     })
 }
 
+fn parse_external_operator_building_skill_record(
+    skill_id: String,
+    operator_id: String,
+    operator_name_zh: String,
+    room_type: String,
+    skill_name: String,
+    raw_json: &str,
+) -> Result<ExternalOperatorBuildingSkillRecord, RepositoryError> {
+    let raw_value = serde_json::from_str::<serde_json::Value>(raw_json)
+        .map_err(|source| RepositoryError::SerializeJson { source })?;
+    let condition_label = raw_value
+        .get("condition_label")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("未知条件")
+        .to_string();
+    let room_type_label = raw_value
+        .get("room_type_label")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(room_type.as_str())
+        .to_string();
+    let description = raw_value
+        .get("description")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    Ok(ExternalOperatorBuildingSkillRecord {
+        skill_id,
+        operator_id,
+        operator_name_zh,
+        condition_label,
+        room_type,
+        room_type_label,
+        skill_name,
+        description,
+    })
+}
+
 fn parse_prts_stage_record(
     stage_id: String,
     zone_id: Option<String>,
@@ -1669,6 +2669,18 @@ pub struct ExternalOperatorGrowthRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalOperatorBuildingSkillRecord {
+    pub skill_id: String,
+    pub operator_id: String,
+    pub operator_name_zh: String,
+    pub condition_label: String,
+    pub room_type: String,
+    pub room_type_label: String,
+    pub skill_name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalItemNameMatchRecord {
     pub item_id: String,
     pub item_type: String,
@@ -1697,6 +2709,200 @@ pub struct ExternalStageDefRecord {
     pub is_open: bool,
     pub page_title: Option<String>,
     pub categories: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScanArtifactInsert {
+    pub artifact_id: String,
+    pub scan_kind: String,
+    pub page_id: String,
+    pub file_path: Option<String>,
+    pub payload_json: Option<serde_json::Value>,
+    pub confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecognitionReviewQueueInsert {
+    pub review_id: String,
+    pub artifact_id: String,
+    pub entity_type: String,
+    pub entity_id: Option<String>,
+    pub proposed_value_json: serde_json::Value,
+    pub confidence: f64,
+    pub status: String,
+    pub review_note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperatorSnapshotInsert {
+    pub snapshot_id: String,
+    pub source: String,
+    pub confidence: Option<f64>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperatorSnapshotRecord {
+    pub snapshot_id: String,
+    pub source: String,
+    pub confidence: Option<f64>,
+    pub note: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperatorStateUpsert {
+    pub operator_id: String,
+    pub name_zh: String,
+    pub owned: bool,
+    pub rarity: i64,
+    pub profession: String,
+    pub branch: Option<String>,
+    pub elite_stage: i64,
+    pub level: i64,
+    pub skill_level: i64,
+    pub mastery_1: i64,
+    pub mastery_2: i64,
+    pub mastery_3: i64,
+    pub module_state: Option<String>,
+    pub module_level: Option<i64>,
+    pub recognition_confidence: Option<f64>,
+    pub last_scanned_at: Option<String>,
+    pub snapshot_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperatorStateRecord {
+    pub operator_id: String,
+    pub name_zh: String,
+    pub owned: bool,
+    pub rarity: i64,
+    pub profession: String,
+    pub branch: Option<String>,
+    pub elite_stage: i64,
+    pub level: i64,
+    pub skill_level: i64,
+    pub mastery_1: i64,
+    pub mastery_2: i64,
+    pub mastery_3: i64,
+    pub module_state: Option<String>,
+    pub module_level: Option<i64>,
+    pub starred: bool,
+    pub emergency_target: bool,
+    pub recognition_confidence: Option<f64>,
+    pub last_scanned_at: Option<String>,
+    pub snapshot_id: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerStatusSnapshotInsert {
+    pub snapshot_id: String,
+    pub source: String,
+    pub uid: String,
+    pub account_name: Option<String>,
+    pub store_ts: Option<i64>,
+    pub status_keys_json: serde_json::Value,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerStatusStateUpsert {
+    pub uid: String,
+    pub account_name: Option<String>,
+    pub store_ts: Option<i64>,
+    pub status_keys_json: serde_json::Value,
+    pub snapshot_id: String,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerStatusStateRecord {
+    pub uid: String,
+    pub account_name: Option<String>,
+    pub store_ts: Option<i64>,
+    pub status_keys_json: String,
+    pub snapshot_id: String,
+    pub updated_at: String,
+    pub raw_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BaseBuildingSnapshotInsert {
+    pub snapshot_id: String,
+    pub source: String,
+    pub uid: String,
+    pub has_control: bool,
+    pub has_meeting: bool,
+    pub has_training: bool,
+    pub has_hire: bool,
+    pub dormitory_count: i64,
+    pub manufacture_count: i64,
+    pub trading_count: i64,
+    pub power_count: i64,
+    pub tired_char_count: i64,
+    pub building_keys_json: serde_json::Value,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BaseBuildingStateUpsert {
+    pub uid: String,
+    pub has_control: bool,
+    pub has_meeting: bool,
+    pub has_training: bool,
+    pub has_hire: bool,
+    pub dormitory_count: i64,
+    pub manufacture_count: i64,
+    pub trading_count: i64,
+    pub power_count: i64,
+    pub tired_char_count: i64,
+    pub building_keys_json: serde_json::Value,
+    pub snapshot_id: String,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BaseBuildingStateRecord {
+    pub uid: String,
+    pub has_control: bool,
+    pub has_meeting: bool,
+    pub has_training: bool,
+    pub has_hire: bool,
+    pub dormitory_count: i64,
+    pub manufacture_count: i64,
+    pub trading_count: i64,
+    pub power_count: i64,
+    pub tired_char_count: i64,
+    pub building_keys_json: String,
+    pub snapshot_id: String,
+    pub updated_at: String,
+    pub raw_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScanArtifactRecord {
+    pub artifact_id: String,
+    pub scan_kind: String,
+    pub page_id: String,
+    pub file_path: Option<String>,
+    pub payload_json: Option<String>,
+    pub confidence: Option<f64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecognitionReviewQueueRecord {
+    pub review_id: String,
+    pub artifact_id: String,
+    pub entity_type: String,
+    pub entity_id: Option<String>,
+    pub proposed_value_json: String,
+    pub confidence: f64,
+    pub status: String,
+    pub review_note: Option<String>,
+    pub created_at: String,
+    pub reviewed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1772,6 +2978,15 @@ pub struct ExternalOperatorGrowthUpsert {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ExternalOperatorBuildingSkillUpsert {
+    pub skill_id: String,
+    pub operator_id: String,
+    pub room_type: String,
+    pub skill_name: String,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExternalRecipeUpsert {
     pub recipe_id: String,
     pub output_item_id: String,
@@ -1800,17 +3015,39 @@ pub enum RepositoryError {
 mod tests {
     use super::AppRepository;
     use super::AuditLogEntry;
+    use super::BaseBuildingSnapshotInsert;
+    use super::BaseBuildingStateUpsert;
     use super::ExternalEventNoticeUpsert;
     use super::ExternalItemDefUpsert;
+    use super::ExternalOperatorBuildingSkillUpsert;
     use super::ExternalOperatorDefUpsert;
     use super::ExternalOperatorGrowthUpsert;
     use super::ExternalRecipeUpsert;
     use super::ExternalStageDefUpsert;
+    use super::OperatorSnapshotInsert;
+    use super::OperatorStateUpsert;
     use super::PenguinStageUpsert;
+    use super::PlayerStatusSnapshotInsert;
+    use super::PlayerStatusStateUpsert;
+    use super::RecognitionReviewQueueInsert;
+    use super::ScanArtifactInsert;
     use crate::database::AppDatabase;
     use crate::database::default_database_path;
+    use akbox_device::LowConfidencePolicy;
+    use akbox_device::PageStateDefinition;
+    use akbox_device::ReferenceResolution;
+    use akbox_device::RoiDefinition;
+    use akbox_device::RoiPreprocessStep;
+    use akbox_device::RoiPurpose;
+    use akbox_device::RoiRect;
+    use akbox_device::crop_single_roi_from_png;
+    use image::DynamicImage;
+    use image::ImageBuffer;
+    use image::ImageFormat;
+    use image::Rgba;
     use serde_json::json;
     use std::fs;
+    use std::io::Cursor;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1931,6 +3168,66 @@ mod tests {
             assert_eq!(notices[0].notice_id, "notice-002");
             assert_eq!(notices[1].notice_id, "notice-001");
             assert!(notices[0].confirmed);
+        }
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+    }
+
+    #[test]
+    fn repository_can_replace_external_event_notices() {
+        let base_directory = unique_test_path("event-notice-replace");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+
+            repository
+                .upsert_external_event_notices(&[
+                    ExternalEventNoticeUpsert {
+                        notice_id: "notice-001".to_string(),
+                        title: "旧活动".to_string(),
+                        notice_type: "activity".to_string(),
+                        published_at: "2026-03-10T12:00:00+08:00".to_string(),
+                        start_at: Some("2026-03-11T12:00:00+08:00".to_string()),
+                        end_at: Some("2026-03-12T12:00:00+08:00".to_string()),
+                        source_url: "https://ak.hypergryph.com/news/notice-001".to_string(),
+                        confirmed: true,
+                        raw_json: json!({"title": "旧活动"}),
+                    },
+                    ExternalEventNoticeUpsert {
+                        notice_id: "notice-002".to_string(),
+                        title: "旧维护".to_string(),
+                        notice_type: "notice".to_string(),
+                        published_at: "2026-03-11T16:00:00+08:00".to_string(),
+                        start_at: Some("2026-03-14T16:00:00+08:00".to_string()),
+                        end_at: Some("2026-03-14T17:00:00+08:00".to_string()),
+                        source_url: "https://ak.hypergryph.com/news/notice-002".to_string(),
+                        confirmed: true,
+                        raw_json: json!({"title": "旧维护"}),
+                    },
+                ])
+                .unwrap();
+
+            repository
+                .replace_external_event_notices(&[ExternalEventNoticeUpsert {
+                    notice_id: "notice-003".to_string(),
+                    title: "新活动".to_string(),
+                    notice_type: "activity".to_string(),
+                    published_at: "2026-03-12T12:00:00+08:00".to_string(),
+                    start_at: Some("2026-03-14T16:00:00+08:00".to_string()),
+                    end_at: Some("2026-04-25T03:59:00+08:00".to_string()),
+                    source_url: "https://ak.hypergryph.com/news/notice-003".to_string(),
+                    confirmed: true,
+                    raw_json: json!({"title": "新活动"}),
+                }])
+                .unwrap();
+
+            assert_eq!(repository.count_external_event_notices().unwrap(), 1);
+
+            let notices = repository.list_external_event_notices(4).unwrap();
+            assert_eq!(notices.len(), 1);
+            assert_eq!(notices[0].notice_id, "notice-003");
+            assert_eq!(notices[0].title, "新活动");
         }
 
         drop(database);
@@ -2143,6 +3440,430 @@ mod tests {
     }
 
     #[test]
+    fn repository_can_replace_and_list_external_operator_building_skills() {
+        let base_directory = unique_test_path("operator-building-skill");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+
+            repository
+                .replace_external_operator_defs(&[
+                    ExternalOperatorDefUpsert {
+                        operator_id: "char_103_angel".to_string(),
+                        name_zh: "能天使".to_string(),
+                        rarity: 5,
+                        profession: "狙击".to_string(),
+                        branch: Some("速射手".to_string()),
+                        server: "CN".to_string(),
+                        raw_json: json!({"operator_id": "char_103_angel"}),
+                    },
+                    ExternalOperatorDefUpsert {
+                        operator_id: "char_002_amiya".to_string(),
+                        name_zh: "阿米娅".to_string(),
+                        rarity: 5,
+                        profession: "术师".to_string(),
+                        branch: Some("中坚术师".to_string()),
+                        server: "CN".to_string(),
+                        raw_json: json!({"operator_id": "char_002_amiya"}),
+                    },
+                ])
+                .unwrap();
+
+            repository
+                .replace_external_operator_building_skills(&[
+                    ExternalOperatorBuildingSkillUpsert {
+                        skill_id: "char_103_angel:elite_0:row1".to_string(),
+                        operator_id: "char_103_angel".to_string(),
+                        room_type: "trading_post".to_string(),
+                        skill_name: "企鹅物流·α".to_string(),
+                        raw_json: json!({
+                            "condition_label": "精英0",
+                            "room_type_label": "贸易站",
+                            "description": "进驻贸易站时，订单获取效率+20%",
+                            "sort_order": 1,
+                        }),
+                    },
+                    ExternalOperatorBuildingSkillUpsert {
+                        skill_id: "char_002_amiya:elite_2:row2".to_string(),
+                        operator_id: "char_002_amiya".to_string(),
+                        room_type: "dormitory".to_string(),
+                        skill_name: "小提琴独奏".to_string(),
+                        raw_json: json!({
+                            "condition_label": "精英2",
+                            "room_type_label": "宿舍",
+                            "description": "进驻宿舍时，心情恢复速度提升",
+                            "sort_order": 2,
+                        }),
+                    },
+                ])
+                .unwrap();
+
+            assert_eq!(
+                repository
+                    .count_external_operator_building_skills()
+                    .unwrap(),
+                2
+            );
+
+            let skill_rows = repository
+                .list_external_operator_building_skills(8)
+                .unwrap();
+            assert_eq!(skill_rows.len(), 2);
+            assert_eq!(skill_rows[0].operator_name_zh, "能天使");
+            assert_eq!(skill_rows[0].condition_label, "精英0");
+            assert_eq!(skill_rows[0].room_type, "trading_post");
+            assert_eq!(skill_rows[0].room_type_label, "贸易站");
+            assert_eq!(skill_rows[0].skill_name, "企鹅物流·α");
+            assert!(skill_rows[0].description.contains("订单获取效率"));
+            assert_eq!(skill_rows[1].operator_name_zh, "阿米娅");
+            assert_eq!(skill_rows[1].room_type_label, "宿舍");
+        }
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+    }
+
+    #[test]
+    fn repository_can_record_roi_scan_artifact_and_queue_review() {
+        let base_directory = unique_test_path("roi-artifact");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+            let crop = sample_roi_crop_result();
+
+            repository
+                .insert_scan_artifact(&ScanArtifactInsert {
+                    artifact_id: "artifact-001".to_string(),
+                    scan_kind: "roi_capture".to_string(),
+                    page_id: crop.page_id.clone(),
+                    file_path: Some("debug-artifacts/item-count.png".to_string()),
+                    payload_json: Some(serde_json::to_value(crop.artifact_payload()).unwrap()),
+                    confidence: Some(0.82),
+                })
+                .unwrap();
+
+            repository
+                .enqueue_recognition_review(&RecognitionReviewQueueInsert {
+                    review_id: "review-001".to_string(),
+                    artifact_id: "artifact-001".to_string(),
+                    entity_type: "inventory_item_quantity".to_string(),
+                    entity_id: Some("30011".to_string()),
+                    proposed_value_json: json!({
+                        "raw_text": "12",
+                        "normalized_quantity": 12
+                    }),
+                    confidence: 0.82,
+                    status: "pending".to_string(),
+                    review_note: Some("ROI 低于自动确认阈值".to_string()),
+                })
+                .unwrap();
+
+            assert_eq!(repository.count_scan_artifacts().unwrap(), 1);
+            assert_eq!(repository.count_recognition_review_queue().unwrap(), 1);
+
+            let artifacts = repository.list_scan_artifacts(4).unwrap();
+            assert_eq!(artifacts.len(), 1);
+            assert_eq!(artifacts[0].artifact_id, "artifact-001");
+            assert_eq!(artifacts[0].page_id, "inventory_main");
+            assert_eq!(artifacts[0].scan_kind, "roi_capture");
+            assert!(artifacts[0].created_at.contains('T'));
+            let payload_json = artifacts[0].payload_json.as_deref().unwrap();
+            assert!(payload_json.contains("\"roi_id\":\"item_count\""));
+            assert!(payload_json.contains("\"low_confidence_policy\":\"queue_review\""));
+
+            let reviews = repository.list_recognition_review_queue(4).unwrap();
+            assert_eq!(reviews.len(), 1);
+            assert_eq!(reviews[0].review_id, "review-001");
+            assert_eq!(reviews[0].artifact_id, "artifact-001");
+            assert_eq!(reviews[0].status, "pending");
+            assert!(
+                reviews[0]
+                    .proposed_value_json
+                    .contains("\"normalized_quantity\":12")
+            );
+            assert_eq!(
+                reviews[0].review_note.as_deref(),
+                Some("ROI 低于自动确认阈值")
+            );
+        }
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+    }
+
+    #[test]
+    fn repository_can_replace_operator_state_snapshot_and_preserve_manual_flags() {
+        let base_directory = unique_test_path("operator-state");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+
+            repository
+                .replace_operator_state_snapshot(
+                    &OperatorSnapshotInsert {
+                        snapshot_id: "snapshot-001".to_string(),
+                        source: "skland.player-info.current".to_string(),
+                        confidence: Some(1.0),
+                        note: Some("首轮导入".to_string()),
+                    },
+                    &[
+                        OperatorStateUpsert {
+                            operator_id: "char_002_amiya".to_string(),
+                            name_zh: "阿米娅".to_string(),
+                            owned: true,
+                            rarity: 5,
+                            profession: "术师".to_string(),
+                            branch: Some("中坚术师".to_string()),
+                            elite_stage: 2,
+                            level: 90,
+                            skill_level: 7,
+                            mastery_1: 3,
+                            mastery_2: 0,
+                            mastery_3: 0,
+                            module_state: Some("uniequip_002_amiya".to_string()),
+                            module_level: Some(2),
+                            recognition_confidence: Some(1.0),
+                            last_scanned_at: Some("2026-03-17T00:00:00Z".to_string()),
+                            snapshot_id: "snapshot-001".to_string(),
+                        },
+                        OperatorStateUpsert {
+                            operator_id: "char_103_angel".to_string(),
+                            name_zh: "能天使".to_string(),
+                            owned: false,
+                            rarity: 6,
+                            profession: "狙击".to_string(),
+                            branch: Some("速射手".to_string()),
+                            elite_stage: 0,
+                            level: 1,
+                            skill_level: 1,
+                            mastery_1: 0,
+                            mastery_2: 0,
+                            mastery_3: 0,
+                            module_state: None,
+                            module_level: None,
+                            recognition_confidence: Some(1.0),
+                            last_scanned_at: Some("2026-03-17T00:00:00Z".to_string()),
+                            snapshot_id: "snapshot-001".to_string(),
+                        },
+                    ],
+                )
+                .unwrap();
+
+            database
+                .connection()
+                .execute(
+                    "UPDATE operator_state
+                     SET starred = 1,
+                         emergency_target = 1
+                     WHERE operator_id = 'char_002_amiya'",
+                    [],
+                )
+                .unwrap();
+
+            repository
+                .replace_operator_state_snapshot(
+                    &OperatorSnapshotInsert {
+                        snapshot_id: "snapshot-002".to_string(),
+                        source: "skland.player-info.current".to_string(),
+                        confidence: Some(1.0),
+                        note: Some("二轮导入".to_string()),
+                    },
+                    &[OperatorStateUpsert {
+                        operator_id: "char_002_amiya".to_string(),
+                        name_zh: "阿米娅".to_string(),
+                        owned: true,
+                        rarity: 5,
+                        profession: "术师".to_string(),
+                        branch: Some("中坚术师".to_string()),
+                        elite_stage: 2,
+                        level: 80,
+                        skill_level: 7,
+                        mastery_1: 2,
+                        mastery_2: 1,
+                        mastery_3: 0,
+                        module_state: Some("uniequip_002_amiya".to_string()),
+                        module_level: Some(1),
+                        recognition_confidence: Some(1.0),
+                        last_scanned_at: Some("2026-03-17T01:00:00Z".to_string()),
+                        snapshot_id: "snapshot-002".to_string(),
+                    }],
+                )
+                .unwrap();
+
+            assert_eq!(repository.count_operator_snapshots().unwrap(), 2);
+            assert_eq!(repository.count_operator_states().unwrap(), 1);
+
+            let snapshots = repository.list_operator_snapshots(4).unwrap();
+            assert_eq!(snapshots.len(), 2);
+            assert_eq!(snapshots[0].snapshot_id, "snapshot-002");
+
+            let states = repository.list_operator_states(8).unwrap();
+            assert_eq!(states.len(), 1);
+            assert_eq!(states[0].operator_id, "char_002_amiya");
+            assert_eq!(states[0].level, 80);
+            assert_eq!(states[0].mastery_1, 2);
+            assert_eq!(states[0].mastery_2, 1);
+            assert_eq!(states[0].snapshot_id.as_deref(), Some("snapshot-002"));
+            assert!(states[0].owned);
+            assert!(states[0].starred);
+            assert!(states[0].emergency_target);
+        }
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+    }
+
+    #[test]
+    fn repository_can_replace_player_status_and_base_building_snapshot() {
+        let base_directory = unique_test_path("skland-status-building");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+
+            repository
+                .replace_player_status_and_base_building_snapshot(
+                    &PlayerStatusSnapshotInsert {
+                        snapshot_id: "player-status-snapshot-001".to_string(),
+                        source: "skland.player-info.current".to_string(),
+                        uid: "local-uid".to_string(),
+                        account_name: Some("测试博士".to_string()),
+                        store_ts: Some(1710600000),
+                        status_keys_json: json!(["name", "storeTs"]),
+                        raw_json: json!({
+                            "name": "测试博士",
+                            "storeTs": 1710600000
+                        }),
+                    },
+                    &PlayerStatusStateUpsert {
+                        uid: "local-uid".to_string(),
+                        account_name: Some("测试博士".to_string()),
+                        store_ts: Some(1710600000),
+                        status_keys_json: json!(["name", "storeTs"]),
+                        snapshot_id: "player-status-snapshot-001".to_string(),
+                        raw_json: json!({
+                            "name": "测试博士",
+                            "storeTs": 1710600000
+                        }),
+                    },
+                    &BaseBuildingSnapshotInsert {
+                        snapshot_id: "base-building-snapshot-001".to_string(),
+                        source: "skland.player-info.current".to_string(),
+                        uid: "local-uid".to_string(),
+                        has_control: true,
+                        has_meeting: true,
+                        has_training: true,
+                        has_hire: true,
+                        dormitory_count: 4,
+                        manufacture_count: 3,
+                        trading_count: 2,
+                        power_count: 3,
+                        tired_char_count: 5,
+                        building_keys_json: json!([
+                            "control",
+                            "dormitories",
+                            "hire",
+                            "manufactures",
+                            "meeting",
+                            "powers",
+                            "tiredChars",
+                            "tradings",
+                            "training"
+                        ]),
+                        raw_json: json!({
+                            "control": {},
+                            "meeting": {},
+                            "training": {},
+                            "hire": {},
+                            "dormitories": [{}, {}, {}, {}],
+                            "manufactures": [{}, {}, {}],
+                            "tradings": [{}, {}],
+                            "powers": [{}, {}, {}],
+                            "tiredChars": [{}, {}, {}, {}, {}]
+                        }),
+                    },
+                    &BaseBuildingStateUpsert {
+                        uid: "local-uid".to_string(),
+                        has_control: true,
+                        has_meeting: true,
+                        has_training: true,
+                        has_hire: true,
+                        dormitory_count: 4,
+                        manufacture_count: 3,
+                        trading_count: 2,
+                        power_count: 3,
+                        tired_char_count: 5,
+                        building_keys_json: json!([
+                            "control",
+                            "dormitories",
+                            "hire",
+                            "manufactures",
+                            "meeting",
+                            "powers",
+                            "tiredChars",
+                            "tradings",
+                            "training"
+                        ]),
+                        snapshot_id: "base-building-snapshot-001".to_string(),
+                        raw_json: json!({
+                            "control": {},
+                            "meeting": {},
+                            "training": {},
+                            "hire": {},
+                            "dormitories": [{}, {}, {}, {}],
+                            "manufactures": [{}, {}, {}],
+                            "tradings": [{}, {}],
+                            "powers": [{}, {}, {}],
+                            "tiredChars": [{}, {}, {}, {}, {}]
+                        }),
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(repository.count_player_status_snapshots().unwrap(), 1);
+            assert_eq!(repository.count_player_status_states().unwrap(), 1);
+            assert_eq!(repository.count_base_building_snapshots().unwrap(), 1);
+            assert_eq!(repository.count_base_building_states().unwrap(), 1);
+
+            let player_status_states = repository.list_player_status_states(4).unwrap();
+            assert_eq!(player_status_states.len(), 1);
+            assert_eq!(player_status_states[0].uid, "local-uid");
+            assert_eq!(
+                player_status_states[0].account_name.as_deref(),
+                Some("测试博士")
+            );
+            assert_eq!(player_status_states[0].store_ts, Some(1710600000));
+            assert_eq!(
+                player_status_states[0].snapshot_id,
+                "player-status-snapshot-001"
+            );
+            assert!(player_status_states[0].status_keys_json.contains("storeTs"));
+
+            let base_building_states = repository.list_base_building_states(4).unwrap();
+            assert_eq!(base_building_states.len(), 1);
+            assert_eq!(base_building_states[0].uid, "local-uid");
+            assert!(base_building_states[0].has_control);
+            assert!(base_building_states[0].has_meeting);
+            assert_eq!(base_building_states[0].dormitory_count, 4);
+            assert_eq!(base_building_states[0].manufacture_count, 3);
+            assert_eq!(base_building_states[0].trading_count, 2);
+            assert_eq!(base_building_states[0].power_count, 3);
+            assert_eq!(base_building_states[0].tired_char_count, 5);
+            assert_eq!(
+                base_building_states[0].snapshot_id,
+                "base-building-snapshot-001"
+            );
+            assert!(
+                base_building_states[0]
+                    .building_keys_json
+                    .contains("tradings")
+            );
+        }
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+    }
+
+    #[test]
     fn repository_can_replace_and_list_external_recipes() {
         let base_directory = unique_test_path("recipe-def");
         let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
@@ -2337,5 +4058,55 @@ mod tests {
             "arkagent-data-repo-{label}-{}-{nanos}",
             std::process::id()
         ))
+    }
+
+    fn sample_roi_crop_result() -> akbox_device::RoiCropResult {
+        let page = PageStateDefinition {
+            page_id: "inventory_main".to_string(),
+            display_name: "仓库主页".to_string(),
+            reference_resolution: ReferenceResolution {
+                width: 4,
+                height: 4,
+            },
+            confirmation_markers: Vec::new(),
+            rois: vec![RoiDefinition {
+                roi_id: "item_count".to_string(),
+                display_name: "物品数量".to_string(),
+                rect: RoiRect {
+                    x: 2,
+                    y: 0,
+                    width: 2,
+                    height: 2,
+                },
+                purpose: RoiPurpose::NumericOcr,
+                preprocess_steps: vec![RoiPreprocessStep::Grayscale, RoiPreprocessStep::Upscale2x],
+                confidence_threshold: Some(0.98),
+                low_confidence_policy: LowConfidencePolicy::QueueReview,
+            }],
+            supported_actions: Vec::new(),
+            recovery_actions: Vec::new(),
+        };
+
+        crop_single_roi_from_png(&page, "item_count", &sample_png(4, 4)).unwrap()
+    }
+
+    fn sample_png(width: u32, height: u32) -> Vec<u8> {
+        let image = ImageBuffer::from_fn(width, height, |x, y| {
+            if x < width / 2 && y < height / 2 {
+                Rgba([255, 0, 0, 255])
+            } else if x >= width / 2 && y < height / 2 {
+                Rgba([0, 255, 0, 255])
+            } else if x < width / 2 && y >= height / 2 {
+                Rgba([0, 0, 255, 255])
+            } else {
+                Rgba([255, 255, 0, 255])
+            }
+        });
+
+        let mut encoded = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(image)
+            .write_to(&mut encoded, ImageFormat::Png)
+            .unwrap();
+        encoded.into_inner()
     }
 }

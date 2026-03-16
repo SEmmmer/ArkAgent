@@ -1,0 +1,15 @@
+[skland]
+# 本地森空岛调试用鉴权文件模板。
+# 真实凭据请写入同目录下被忽略的 `skland-auth.local.toml`，不要修改并提交本示例文件。
+
+# 本地调试 UID 文件路径。默认可以继续复用根目录下的 `uid.txt`。
+uid_file = "uid.txt"
+
+# 以下字段按“能提供多少填多少”的策略准备：
+# - 若已经拿到 cred + token，可直接用于带签名请求
+# - 若只有 access_token，可后续换取 cred / token
+# - user_id 非必须，但若已知可减少一次额外查询
+cred = ""
+token = ""
+user_id = ""
+access_token = ""

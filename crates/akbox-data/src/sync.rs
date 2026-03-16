@@ -10,6 +10,7 @@ use crate::repository::AlertUpsert;
 use crate::repository::AppRepository;
 use crate::repository::ExternalEventNoticeUpsert;
 use crate::repository::ExternalItemDefUpsert;
+use crate::repository::ExternalOperatorBuildingSkillUpsert;
 use crate::repository::ExternalOperatorDefUpsert;
 use crate::repository::ExternalOperatorGrowthUpsert;
 use crate::repository::ExternalRecipeUpsert;
@@ -28,6 +29,8 @@ pub const PRTS_OPERATOR_INDEX_SOURCE_ID: &str = "prts.operator-index.cn";
 pub const PRTS_OPERATOR_INDEX_CACHE_KEY: &str = "prts:operator-index:cn";
 pub const PRTS_OPERATOR_GROWTH_SOURCE_ID: &str = "prts.operator-growth.cn";
 pub const PRTS_OPERATOR_GROWTH_CACHE_KEY: &str = "prts:operator-growth:cn";
+pub const PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID: &str = "prts.operator-building-skill.cn";
+pub const PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY: &str = "prts:operator-building-skill:cn";
 pub const PRTS_RECIPE_INDEX_SOURCE_ID: &str = "prts.recipe-index.cn";
 pub const PRTS_RECIPE_INDEX_CACHE_KEY: &str = "prts:recipe-index:cn";
 pub const PRTS_STAGE_INDEX_SOURCE_ID: &str = "prts.stage-index.cn";
@@ -131,6 +134,18 @@ pub struct SyncPrtsOperatorIndexOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncPrtsOperatorGrowthOutcome {
+    pub source_id: String,
+    pub cache_key: String,
+    pub revision: String,
+    pub cache_size_bytes: usize,
+    pub row_count: usize,
+    pub requested_mode: SyncMode,
+    pub effective_mode: SyncMode,
+    pub run_status: SyncRunStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncPrtsOperatorBuildingSkillOutcome {
     pub source_id: String,
     pub cache_key: String,
     pub revision: String,
@@ -293,7 +308,7 @@ pub fn sync_official_notices_with_mode(
         })
         .map_err(SyncOfficialNoticeError::Repository)?;
     repository
-        .upsert_external_event_notices(&upserts)
+        .replace_external_event_notices(&upserts)
         .map_err(SyncOfficialNoticeError::Repository)?;
     repository
         .record_sync_success(OFFICIAL_NOTICE_SOURCE_ID, revision.as_deref())
@@ -694,6 +709,98 @@ pub fn sync_prts_operator_growth_with_mode(
         cache_key: PRTS_OPERATOR_GROWTH_CACHE_KEY.to_string(),
         revision: operator_growth.revision,
         cache_size_bytes: operator_growth.raw_body.len(),
+        row_count: upserts.len(),
+        requested_mode,
+        effective_mode: SyncMode::Full,
+        run_status: SyncRunStatus::Updated,
+    })
+}
+
+pub fn sync_prts_operator_building_skill(
+    repository: &AppRepository<'_>,
+    client: &PrtsClient,
+) -> Result<SyncPrtsOperatorBuildingSkillOutcome, SyncPrtsOperatorBuildingSkillError> {
+    sync_prts_operator_building_skill_with_mode(repository, client, SyncMode::Full)
+}
+
+pub fn sync_prts_operator_building_skill_with_mode(
+    repository: &AppRepository<'_>,
+    client: &PrtsClient,
+    requested_mode: SyncMode,
+) -> Result<SyncPrtsOperatorBuildingSkillOutcome, SyncPrtsOperatorBuildingSkillError> {
+    repository
+        .record_sync_attempt(PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID)
+        .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+
+    let building_skill_index = match client.fetch_operator_building_skills() {
+        Ok(building_skill_index) => building_skill_index,
+        Err(error) => {
+            repository
+                .record_sync_failure(PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID, &error.to_string())
+                .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+            repository
+                .upsert_alert(&AlertUpsert {
+                    alert_id: &sync_failure_alert_id(PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID),
+                    alert_type: "sync_failure",
+                    severity: "error",
+                    title: "PRTS 基建技能同步失败",
+                    message: &error.to_string(),
+                    status: "active",
+                    payload_json: None,
+                })
+                .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+            return Err(SyncPrtsOperatorBuildingSkillError::Client(error));
+        }
+    };
+
+    let operator_upserts = building_skill_index
+        .operators
+        .iter()
+        .map(|operator| ExternalOperatorDefUpsert {
+            operator_id: operator.operator_id.clone(),
+            name_zh: operator.name_zh.clone(),
+            rarity: operator.rarity,
+            profession: operator.profession.clone(),
+            branch: operator.branch.clone(),
+            server: "CN".to_string(),
+            raw_json: operator.raw_json.clone(),
+        })
+        .collect::<Vec<_>>();
+    let upserts = build_prts_operator_building_skill_upserts(&building_skill_index.building_skills);
+
+    repository
+        .upsert_raw_source_cache(&RawSourceCacheUpsert {
+            cache_key: PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY,
+            source_name: "prts",
+            revision: Some(building_skill_index.revision.as_str()),
+            content_type: building_skill_index.content_type.as_str(),
+            payload: building_skill_index.raw_body.as_slice(),
+            expires_at: None,
+        })
+        .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+    repository
+        .upsert_external_operator_defs(&operator_upserts)
+        .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+    repository
+        .replace_external_operator_building_skills(&upserts)
+        .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+    repository
+        .record_sync_success(
+            PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID,
+            Some(building_skill_index.revision.as_str()),
+        )
+        .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+    repository
+        .resolve_alert(&sync_failure_alert_id(
+            PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID,
+        ))
+        .map_err(SyncPrtsOperatorBuildingSkillError::Repository)?;
+
+    Ok(SyncPrtsOperatorBuildingSkillOutcome {
+        source_id: PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID.to_string(),
+        cache_key: PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY.to_string(),
+        revision: building_skill_index.revision,
+        cache_size_bytes: building_skill_index.raw_body.len(),
         row_count: upserts.len(),
         requested_mode,
         effective_mode: SyncMode::Full,
@@ -1222,6 +1329,14 @@ pub enum SyncPrtsOperatorGrowthError {
 }
 
 #[derive(Debug, Error)]
+pub enum SyncPrtsOperatorBuildingSkillError {
+    #[error(transparent)]
+    Client(#[from] PrtsClientError),
+    #[error(transparent)]
+    Repository(#[from] crate::repository::RepositoryError),
+}
+
+#[derive(Debug, Error)]
 pub enum SyncPrtsStageIndexError {
     #[error(transparent)]
     Client(#[from] PrtsClientError),
@@ -1298,6 +1413,39 @@ fn build_prts_operator_growth_upserts(
                 stage_label: growth.stage_label.clone(),
                 material_slot: growth.material_slot.clone(),
                 raw_json: growth.raw_json.clone(),
+            }
+        })
+        .collect()
+}
+
+fn build_prts_operator_building_skill_upserts(
+    building_skills: &[crate::prts::PrtsOperatorBuildingSkillDefinition],
+) -> Vec<ExternalOperatorBuildingSkillUpsert> {
+    building_skills
+        .iter()
+        .enumerate()
+        .map(|(index, building_skill)| {
+            let condition_key = building_skill
+                .raw_json
+                .get("condition_key")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown-condition");
+            let room_type_key = building_skill
+                .raw_json
+                .get("room_type_key")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(building_skill.room_type.as_str());
+
+            ExternalOperatorBuildingSkillUpsert {
+                skill_id: format!(
+                    "{}:{condition_key}:{room_type_key}:row{}",
+                    building_skill.operator_id,
+                    index + 1
+                ),
+                operator_id: building_skill.operator_id.clone(),
+                room_type: building_skill.room_type.clone(),
+                skill_name: building_skill.skill_name.clone(),
+                raw_json: building_skill.raw_json.clone(),
             }
         })
         .collect()
@@ -1465,6 +1613,8 @@ mod tests {
     use super::PENGUIN_MATRIX_SOURCE_ID;
     use super::PRTS_ITEM_INDEX_CACHE_KEY;
     use super::PRTS_ITEM_INDEX_SOURCE_ID;
+    use super::PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY;
+    use super::PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID;
     use super::PRTS_OPERATOR_GROWTH_CACHE_KEY;
     use super::PRTS_OPERATOR_GROWTH_SOURCE_ID;
     use super::PRTS_OPERATOR_INDEX_CACHE_KEY;
@@ -1484,6 +1634,7 @@ mod tests {
     use super::sync_prts;
     use super::sync_prts_item_index;
     use super::sync_prts_item_index_with_mode;
+    use super::sync_prts_operator_building_skill;
     use super::sync_prts_operator_growth;
     use super::sync_prts_operator_index;
     use super::sync_prts_recipe_index;
@@ -1495,6 +1646,7 @@ mod tests {
     use crate::penguin::PenguinClient;
     use crate::prts::PrtsClient;
     use crate::repository::AppRepository;
+    use crate::repository::ExternalEventNoticeUpsert;
     use crate::repository::ExternalItemDefUpsert;
     use crate::repository::PenguinItemUpsert;
     use crate::repository::PenguinMatrixUpsert;
@@ -1534,10 +1686,23 @@ mod tests {
         let client = OfficialNoticeClient::with_news_url(format!("http://{address}/news")).unwrap();
         {
             let repository = AppRepository::new(database.connection());
+            repository
+                .upsert_external_event_notices(&[ExternalEventNoticeUpsert {
+                    notice_id: "old-non-event".to_string(),
+                    title: "旧的非活动公告".to_string(),
+                    notice_type: "notice".to_string(),
+                    published_at: "2026-01-01T00:00:00+08:00".to_string(),
+                    start_at: None,
+                    end_at: None,
+                    source_url: "https://ak.hypergryph.com/news/old-non-event".to_string(),
+                    confirmed: true,
+                    raw_json: json!({"title": "旧的非活动公告"}),
+                }])
+                .unwrap();
             let outcome = sync_official_notices(&repository, &client).unwrap();
             assert_eq!(outcome.source_id, OFFICIAL_NOTICE_SOURCE_ID);
             assert_eq!(outcome.cache_key, OFFICIAL_NOTICE_CACHE_KEY);
-            assert_eq!(outcome.row_count, 2);
+            assert_eq!(outcome.row_count, 5);
         }
 
         let cache_row = database
@@ -1574,6 +1739,24 @@ mod tests {
         assert_eq!(notice_row.2, Some("2026-03-14T16:00:00+08:00".to_string()));
         assert_eq!(notice_row.3, Some("2026-04-25T03:59:00+08:00".to_string()));
         assert_eq!(notice_row.4, 1);
+
+        let notice_count = database
+            .connection()
+            .query_row("SELECT COUNT(*) FROM external_event_notice", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(notice_count, 5);
+
+        let stale_notice_count = database
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM external_event_notice WHERE notice_id = 'old-non-event'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(stale_notice_count, 0);
 
         let sync_status = database
             .connection()
@@ -2407,6 +2590,215 @@ mod tests {
     }
 
     #[test]
+    fn sync_prts_operator_building_skill_writes_cache_and_rows() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server = thread::spawn(move || {
+            for _ in 0..6 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request_buffer = [0_u8; 4096];
+                let bytes_read = stream.read(&mut request_buffer).unwrap();
+                let request = String::from_utf8_lossy(&request_buffer[..bytes_read]);
+
+                let body = if request.contains("page=%E5%B9%B2%E5%91%98%E4%B8%80%E8%A7%88") {
+                    r#"{"parse":{"title":"干员一览","pageid":2101,"revid":335492}}"#.to_string()
+                } else if request.contains("%E5%B9%B2%E5%91%98id") {
+                    prts_operator_building_skill_operator_index_test_body().to_string()
+                } else if request.contains("page=%E8%83%BD%E5%A4%A9%E4%BD%BF&prop=sections%7Crevid")
+                {
+                    r#"{"parse":{"title":"能天使","pageid":1769,"revid":400002,"sections":[{"line":"后勤技能","index":"8"}]}}"#.to_string()
+                } else if request.contains("page=%E9%98%BF%E7%B1%B3%E5%A8%85&prop=sections%7Crevid")
+                {
+                    r#"{"parse":{"title":"阿米娅","pageid":1751,"revid":400003,"sections":[{"line":"后勤技能","index":"8"}]}}"#.to_string()
+                } else if request.contains("page=%E8%83%BD%E5%A4%A9%E4%BD%BF&prop=text&section=8") {
+                    prts_operator_building_skill_angel_section_test_body().to_string()
+                } else {
+                    prts_operator_building_skill_amiya_section_test_body().to_string()
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+
+        let base_directory = unique_test_path("prts-operator-building-skill");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        let client = PrtsClient::with_api_url(format!("http://{address}/api.php")).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+            let outcome = sync_prts_operator_building_skill(&repository, &client).unwrap();
+            assert_eq!(outcome.source_id, PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID);
+            assert_eq!(outcome.cache_key, PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY);
+            assert_eq!(outcome.revision, "400003");
+            assert_eq!(outcome.row_count, 4);
+        }
+
+        let cache_row = database
+            .connection()
+            .query_row(
+                "SELECT source_name, revision, content_type
+                 FROM raw_source_cache
+                 WHERE cache_key = ?1",
+                [PRTS_OPERATOR_BUILDING_SKILL_CACHE_KEY],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(cache_row.0, "prts");
+        assert_eq!(cache_row.1, "400003");
+        assert!(cache_row.2.contains("application/json"));
+
+        let skill_row = database
+            .connection()
+            .query_row(
+                "SELECT
+                    room_type,
+                    skill_name,
+                    json_extract(raw_json, '$.condition_label'),
+                    json_extract(raw_json, '$.room_type_label'),
+                    json_extract(raw_json, '$.description')
+                 FROM external_operator_building_skill
+                 WHERE skill_id = 'char_103_angel:elite_0:trading_post:row1'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(skill_row.0, "trading_post");
+        assert_eq!(skill_row.1, "企鹅物流·α");
+        assert_eq!(skill_row.2, "精英0");
+        assert_eq!(skill_row.3, "贸易站");
+        assert!(skill_row.4.contains("订单获取效率"));
+
+        let synced_operator_count = database
+            .connection()
+            .query_row("SELECT COUNT(*) FROM external_operator_def", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(synced_operator_count, 2);
+
+        let sync_status = database
+            .connection()
+            .query_row(
+                "SELECT status FROM sync_source_state WHERE source_id = ?1",
+                [PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(sync_status, "succeeded");
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn sync_prts_operator_building_skill_failure_writes_failed_state_and_alert() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server = thread::spawn(move || {
+            for attempt in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request_buffer = [0_u8; 4096];
+                let bytes_read = stream.read(&mut request_buffer).unwrap();
+                let request = String::from_utf8_lossy(&request_buffer[..bytes_read]);
+
+                let (status_line, body) = if attempt == 2
+                    && request.contains("page=%E8%83%BD%E5%A4%A9%E4%BD%BF&prop=sections%7Crevid")
+                {
+                    (
+                        "HTTP/1.1 500 Internal Server Error",
+                        r#"{"error":"internal"}"#.to_string(),
+                    )
+                } else if request.contains("page=%E5%B9%B2%E5%91%98%E4%B8%80%E8%A7%88") {
+                    (
+                        "HTTP/1.1 200 OK",
+                        r#"{"parse":{"title":"干员一览","pageid":2101,"revid":335492}}"#
+                            .to_string(),
+                    )
+                } else {
+                    (
+                        "HTTP/1.1 200 OK",
+                        prts_operator_building_skill_operator_index_test_body().to_string(),
+                    )
+                };
+                let response = format!(
+                    "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+
+        let base_directory = unique_test_path("prts-operator-building-skill-failure");
+        let database = AppDatabase::open(default_database_path(&base_directory)).unwrap();
+        let client = PrtsClient::with_api_url(format!("http://{address}/api.php")).unwrap();
+        {
+            let repository = AppRepository::new(database.connection());
+            let error = sync_prts_operator_building_skill(&repository, &client).unwrap_err();
+            assert!(!error.to_string().is_empty());
+        }
+
+        let sync_status = database
+            .connection()
+            .query_row(
+                "SELECT status FROM sync_source_state WHERE source_id = ?1",
+                [PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(sync_status, "failed");
+
+        let alert = database
+            .connection()
+            .query_row(
+                "SELECT alert_type, severity, status FROM alert WHERE alert_id = ?1",
+                [format!(
+                    "sync-failure:{PRTS_OPERATOR_BUILDING_SKILL_SOURCE_ID}"
+                )],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            alert,
+            (
+                "sync_failure".to_string(),
+                "error".to_string(),
+                "active".to_string(),
+            )
+        );
+
+        drop(database);
+        fs::remove_dir_all(base_directory).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn sync_prts_stage_index_writes_cache_and_stage_rows() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -3137,6 +3529,16 @@ mod tests {
                     },
                     "ACTIVITY": {
                         "list": [{
+                            "cid": "5114",
+                            "tab": "1",
+                            "sticky": false,
+                            "title": "[明日方舟]「卫戍协议：盟约」更新公告",
+                            "author": "【明日方舟】运营组",
+                            "displayTime": 1773459000_i64,
+                            "cover": "",
+                            "extraCover": "",
+                            "brief": "感谢大家对《明日方舟》的关注与支持。「卫戍协议：盟约」下半期活动将于03月14日16:00 ~ 17:00的停机维护后开启。"
+                        }, {
                             "cid": "9697",
                             "tab": "1",
                             "sticky": false,
@@ -3146,10 +3548,30 @@ mod tests {
                             "cover": "",
                             "extraCover": "",
                             "brief": "一、「卫戍协议：盟约」限时活动开启关卡开放时间：03月14日 16:00 - 04月25日 03:59解锁条件：通关主线1-10"
+                        }, {
+                            "cid": "8586",
+                            "tab": "1",
+                            "sticky": false,
+                            "title": "「十字路口」创作征集活动",
+                            "author": "【明日方舟】运营组",
+                            "displayTime": 1773115200_i64,
+                            "cover": "",
+                            "extraCover": "",
+                            "brief": "「十字路口」创作征集进行中。《明日方舟》「十字路口」创作征集活动现已在多平台进行中。"
                         }]
                     },
                     "NEWS": {
-                        "list": []
+                        "list": [{
+                            "cid": "7600",
+                            "tab": "2",
+                            "sticky": false,
+                            "title": "《明日方舟》制作组通讯#62期",
+                            "author": "【明日方舟】制作组",
+                            "displayTime": 1773028800_i64,
+                            "cover": "",
+                            "extraCover": "",
+                            "brief": "制作组通讯内容。"
+                        }]
                     }
                 }
             }
@@ -3179,6 +3601,18 @@ mod tests {
 
     fn prts_operator_growth_skill_section_test_body() -> &'static str {
         r#"{"parse":{"title":"能天使","pageid":1769,"text":{"*":"<div class=\"mw-content-ltr mw-parser-output\"><table><tbody><tr><th colspan=\"2\">技能升级</th></tr><tr><th>1→2</th><td><div><a title=\"技巧概要·卷1\"></a><span>5</span></div></td></tr><tr><th colspan=\"2\">达到精英阶段1后解锁</th></tr><tr><th>4→5</th><td><div><a title=\"技巧概要·卷2\"></a><span>8</span></div></td></tr><tr><th colspan=\"2\">专精训练(达到精英阶段2后解锁)</th></tr><tr><th colspan=\"2\">第1技能</th></tr><tr><th>等级1</th><td><div><a title=\"技巧概要·卷3\"></a><span>6</span></div></td></tr></tbody></table></div>"}}}"#
+    }
+
+    fn prts_operator_building_skill_operator_index_test_body() -> &'static str {
+        r#"{"query":{"results":{"能天使":{"printouts":{"干员id":["char_103_angel"],"稀有度":["5"],"职业":["狙击"],"分支":[{"fulltext":"速射手"}],"分类":[{"fulltext":"分类:干员"},{"fulltext":"分类:狙击干员"}]},"fulltext":"能天使","fullurl":"//prts.wiki/w/%E8%83%BD%E5%A4%A9%E4%BD%BF"},"阿米娅":{"printouts":{"干员id":["char_002_amiya"],"稀有度":["5"],"职业":["术师"],"分支":[{"fulltext":"中坚术师"}],"分类":[{"fulltext":"分类:干员"},{"fulltext":"分类:术师干员"}]},"fulltext":"阿米娅","fullurl":"//prts.wiki/w/%E9%98%BF%E7%B1%B3%E5%A8%85"},"预备干员-重装":{"printouts":{"干员id":["char_513_apionr"],"稀有度":["3"],"职业":["重装"],"分支":[],"分类":[{"fulltext":"分类:干员"},{"fulltext":"分类:重装干员"}]},"fulltext":"预备干员-重装","fullurl":"//prts.wiki/w/%E9%A2%84%E5%A4%87%E5%B9%B2%E5%91%98-%E9%87%8D%E8%A3%85"}}}}"#
+    }
+
+    fn prts_operator_building_skill_angel_section_test_body() -> &'static str {
+        r#"{"parse":{"title":"能天使","pageid":1769,"text":{"*":"<div class=\"mw-content-ltr mw-parser-output\"><table class=\"wikitable logo\"><tbody><tr><th>条件</th><th>图标</th><th>技能1</th><th>房间</th><th>描述</th></tr><tr><td>精英0</td><td><img alt=\"企鹅物流·α\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_tra_spd1.png\" /></td><td>企鹅物流·α</td><td>贸易站</td><td>进驻贸易站时，订单获取效率+20%</td></tr><tr><td>精英2</td><td><img alt=\"物流专家\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_tra_spd3.png\" /></td><td>物流专家</td><td>贸易站</td><td>进驻贸易站时，订单获取效率+35%</td></tr></tbody></table></div>"}}}"#
+    }
+
+    fn prts_operator_building_skill_amiya_section_test_body() -> &'static str {
+        r#"{"parse":{"title":"阿米娅","pageid":1751,"text":{"*":"<div class=\"mw-content-ltr mw-parser-output\"><table class=\"wikitable logo\"><tbody><tr><th>条件</th><th>图标</th><th>技能1</th><th>房间</th><th>描述</th></tr><tr><td>精英0</td><td><img alt=\"合作协议\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_ctrl_t_spd.png\" /></td><td>合作协议</td><td>控制中枢</td><td>进驻控制中枢时，所有贸易站订单效率+7%</td></tr></tbody></table><table class=\"wikitable logo\"><tbody><tr><th>条件</th><th>图标</th><th>技能2</th><th>房间</th><th>描述</th></tr><tr><td>精英2</td><td><img alt=\"小提琴独奏\" src=\"//torappu.prts.wiki/assets/build_skill_icon/bskill_dorm_all2.png\" /></td><td>小提琴独奏</td><td>宿舍</td><td>进驻宿舍时，该宿舍内所有干员的心情每小时恢复+0.15</td></tr></tbody></table></div>"}}}"#
     }
 
     fn prts_item_index_with_recipe_items_test_body() -> String {

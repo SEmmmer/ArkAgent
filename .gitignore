@@ -3,3 +3,5 @@
 /debug-artifacts
 /dist
 /ArkAgent.toml
+/uid.txt
+/skland-auth.local.toml
