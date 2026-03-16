@@ -8,5 +8,11 @@ akbox-core = { path = "../../crates/akbox-core" }
 akbox-data = { path = "../../crates/akbox-data" }
 akbox-device = { path = "../../crates/akbox-device" }
 eframe.workspace = true
+image.workspace = true
+qrcode = { version = "0.14.1", default-features = false }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 time.workspace = true
+toml.workspace = true
 tracing.workspace = true
