@@ -1,0 +1,88 @@
+{
+  "pages": [
+    {
+      "page_id": "inventory_materials_cn",
+      "display_name": "仓库 / 养成材料",
+      "reference_resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "confirmation_markers": [
+        {
+          "marker_id": "tab_all",
+          "rect": {
+            "x": 760,
+            "y": 20,
+            "width": 220,
+            "height": 120
+          },
+          "strategy": "template_fingerprint",
+          "match_method": "normalized_grayscale_mae",
+          "template_path": "markers/inventory_materials_cn/tab_all.png",
+          "pass_threshold": 0.99,
+          "expected_hint": "全部"
+        },
+        {
+          "marker_id": "tab_materials",
+          "rect": {
+            "x": 1560,
+            "y": 20,
+            "width": 320,
+            "height": 120
+          },
+          "strategy": "template_fingerprint",
+          "match_method": "normalized_grayscale_mae",
+          "template_path": "markers/inventory_materials_cn/tab_materials.png",
+          "pass_threshold": 0.99,
+          "expected_hint": "养成材料"
+        }
+      ],
+      "rois": [
+        {
+          "roi_id": "tab_all_text",
+          "display_name": "顶部标签 / 全部",
+          "rect": {
+            "x": 760,
+            "y": 20,
+            "width": 220,
+            "height": 120
+          },
+          "purpose": "short_text_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "tab_materials_text",
+          "display_name": "顶部标签 / 养成材料",
+          "rect": {
+            "x": 1560,
+            "y": 20,
+            "width": 320,
+            "height": 120
+          },
+          "purpose": "short_text_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "visible_item_count_mid",
+          "display_name": "可见物品数量 / 中部样本",
+          "rect": {
+            "x": 1040,
+            "y": 800,
+            "width": 260,
+            "height": 140
+          },
+          "purpose": "numeric_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        }
+      ],
+      "supported_actions": [],
+      "recovery_actions": []
+    }
+  ]
+}

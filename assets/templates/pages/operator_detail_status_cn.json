@@ -1,0 +1,88 @@
+{
+  "pages": [
+    {
+      "page_id": "operator_detail_status_cn",
+      "display_name": "干员详情 / 状态页",
+      "reference_resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "confirmation_markers": [
+        {
+          "marker_id": "trust_label",
+          "rect": {
+            "x": 0,
+            "y": 520,
+            "width": 260,
+            "height": 160
+          },
+          "strategy": "template_fingerprint",
+          "match_method": "normalized_grayscale_mae",
+          "template_path": "markers/operator_detail_status_cn/trust_label.png",
+          "pass_threshold": 0.99,
+          "expected_hint": "信赖值"
+        },
+        {
+          "marker_id": "attack_range_label",
+          "rect": {
+            "x": 0,
+            "y": 880,
+            "width": 420,
+            "height": 180
+          },
+          "strategy": "template_fingerprint",
+          "match_method": "normalized_grayscale_mae",
+          "template_path": "markers/operator_detail_status_cn/attack_range_label.png",
+          "pass_threshold": 0.99,
+          "expected_hint": "攻击范围"
+        }
+      ],
+      "rois": [
+        {
+          "roi_id": "trust_label_text",
+          "display_name": "信赖值标签",
+          "rect": {
+            "x": 0,
+            "y": 520,
+            "width": 260,
+            "height": 160
+          },
+          "purpose": "short_text_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "trust_value_numeric",
+          "display_name": "信赖值数字",
+          "rect": {
+            "x": 220,
+            "y": 520,
+            "width": 460,
+            "height": 260
+          },
+          "purpose": "numeric_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "attack_range_label_text",
+          "display_name": "攻击范围标签",
+          "rect": {
+            "x": 0,
+            "y": 880,
+            "width": 420,
+            "height": 180
+          },
+          "purpose": "short_text_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        }
+      ],
+      "supported_actions": [],
+      "recovery_actions": []
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "pages": [
+    {
+      "page_id": "inventory_materials_scan_cn",
+      "display_name": "仓库 / 养成材料扫描签名",
+      "reference_resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "confirmation_markers": [
+        {
+          "marker_id": "tab_all",
+          "rect": {
+            "x": 760,
+            "y": 20,
+            "width": 220,
+            "height": 120
+          },
+          "strategy": "template_fingerprint",
+          "match_method": "normalized_grayscale_mae",
+          "template_path": "markers/inventory_materials_cn/tab_all.png",
+          "pass_threshold": 0.99,
+          "expected_hint": "全部"
+        },
+        {
+          "marker_id": "tab_materials",
+          "rect": {
+            "x": 1560,
+            "y": 20,
+            "width": 320,
+            "height": 120
+          },
+          "strategy": "template_fingerprint",
+          "match_method": "normalized_grayscale_mae",
+          "template_path": "markers/inventory_materials_cn/tab_materials.png",
+          "pass_threshold": 0.99,
+          "expected_hint": "养成材料"
+        }
+      ],
+      "rois": [
+        {
+          "roi_id": "signature_count_left",
+          "display_name": "翻页签名 / 左侧物品数量",
+          "rect": {
+            "x": 700,
+            "y": 790,
+            "width": 260,
+            "height": 160
+          },
+          "purpose": "generic",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "signature_count_mid",
+          "display_name": "翻页签名 / 中部物品数量",
+          "rect": {
+            "x": 1040,
+            "y": 800,
+            "width": 260,
+            "height": 140
+          },
+          "purpose": "generic",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "signature_count_right",
+          "display_name": "翻页签名 / 右侧物品数量",
+          "rect": {
+            "x": 1290,
+            "y": 790,
+            "width": 260,
+            "height": 160
+          },
+          "purpose": "generic",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "signature_count_far_right",
+          "display_name": "翻页签名 / 最右物品数量",
+          "rect": {
+            "x": 1540,
+            "y": 790,
+            "width": 260,
+            "height": 160
+          },
+          "purpose": "generic",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        },
+        {
+          "roi_id": "signature_count_mid_numeric",
+          "display_name": "翻页签名 / 中部数量 OCR",
+          "rect": {
+            "x": 1040,
+            "y": 800,
+            "width": 260,
+            "height": 140
+          },
+          "purpose": "numeric_ocr",
+          "preprocess_steps": [],
+          "confidence_threshold": 0.98,
+          "low_confidence_policy": "queue_review"
+        }
+      ],
+      "supported_actions": [],
+      "recovery_actions": []
+    }
+  ]
+}
