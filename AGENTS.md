@@ -1404,6 +1404,15 @@ Codex 不得假设“记在上下文里就够了”。
 
 ### 变更记录
 
+- 日期时间：2026-03-16 20:26:33 +08:00
+- 阶段：M3 / 阶段 3：外部数据同步骨架
+- 新需求：将当前这一轮 M3 的累计改动整理成多个清晰 commit，并推送到远端分支
+- 新重要记忆：本轮历史整理已固定为 3 个主题 commit 加 1 个后补文档 commit：`feat(data): add external sync pipelines`、`feat(desktop): add sync controls and player previews`、`docs: update AGENTS milestone log`，以及当前这条“交付完成”记录；后续若继续推进 M3，应在这个提交基线上增量开发，不再回到单个大工作区长期堆积
+- 已完成：已将当前累计改动拆分并提交到 `master`：`d24b755 feat(data): add external sync pipelines` 负责 `akbox-data` 的官方公告 / PRTS / Penguin 同步能力、repository 与 sync 核心；`51088b7 feat(desktop): add sync controls and player previews` 负责 CLI / desktop 的同步入口、增量开关与玩家视角展示；`f6d7ad2 docs: update AGENTS milestone log` 负责前序里程碑记录整理；随后已成功执行 `git push origin master`，远端 `origin/master` 已更新到这些提交
+- 未完成：`external_operator_building_skill` 仍未开始；官方公告仍未过滤创作征集、制作组通讯等非活动内容；当前 `PRTS growth` 仍缺稳定轻量增量锚点
+- 风险/阻塞：虽然提交已拆分，但第一批数据层提交包含了较大范围的 M3 累计改动；若后续还要进一步细化历史，只能通过后续追加整理，不应再改写已推送到远端的公开历史
+- 下一步：继续停留在 M3，按既定顺序进入 `PRTS 基建技能 -> external_operator_building_skill`；同时保持“每完成一个最小闭环就及时提交”，避免再次形成跨多主题的大工作区积压
+
 - 日期时间：2026-03-16 20:24:21 +08:00
 - 阶段：M3 / 阶段 3：外部数据同步骨架
 - 新需求：将当前这一轮 M3 的累计改动整理成多个清晰 commit，并推送到远端分支
